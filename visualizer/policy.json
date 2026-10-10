@@ -1,0 +1,108 @@
+{
+  "graph_id": "alphabet_soup_to_basket_codex_20261009T145742Z_f28cf576",
+  "metadata": {
+    "container_id": "basket",
+    "geometry_source": "saved-dino-sam3-rgbd-model-assisted",
+    "graph_authoring": "codex-assisted-constrained-generation",
+    "open_robot_skills_commit": "752dfbd96968d4d08379f8111765efbf6457800b",
+    "target_id": "alphabet_soup"
+  },
+  "nodes": [
+    {
+      "action": "open_gripper",
+      "id": "open_gripper",
+      "routes": {
+        "failed": "FAILED",
+        "succeeded": "align_over_target"
+      },
+      "skill": "grasping-direct-ik"
+    },
+    {
+      "action": "align_over_target",
+      "id": "align_over_target",
+      "routes": {
+        "failed": "FAILED",
+        "succeeded": "descend_to_grasp"
+      },
+      "skill": "grasping-direct-ik"
+    },
+    {
+      "action": "descend_to_grasp",
+      "id": "descend_to_grasp",
+      "routes": {
+        "failed": "FAILED",
+        "succeeded": "close_gripper"
+      },
+      "skill": "grasping-direct-ik"
+    },
+    {
+      "action": "close_gripper",
+      "id": "close_gripper",
+      "routes": {
+        "failed": "FAILED",
+        "succeeded": "lift_grasped"
+      },
+      "skill": "grasping-direct-ik"
+    },
+    {
+      "action": "lift_grasped",
+      "id": "lift_grasped",
+      "routes": {
+        "failed": "FAILED",
+        "succeeded": "move_over_basket"
+      },
+      "skill": "transporting-objects"
+    },
+    {
+      "action": "move_over_basket",
+      "id": "move_over_basket",
+      "routes": {
+        "failed": "FAILED",
+        "succeeded": "position_for_release"
+      },
+      "skill": "transporting-objects"
+    },
+    {
+      "action": "position_for_release",
+      "id": "position_for_release",
+      "routes": {
+        "failed": "FAILED",
+        "succeeded": "release_object"
+      },
+      "skill": "transporting-objects"
+    },
+    {
+      "action": "release_object",
+      "id": "release_object",
+      "routes": {
+        "failed": "FAILED",
+        "succeeded": "retract_from_basket"
+      },
+      "skill": "transporting-objects"
+    },
+    {
+      "action": "retract_from_basket",
+      "id": "retract_from_basket",
+      "routes": {
+        "failed": "FAILED",
+        "succeeded": "settle_release"
+      },
+      "skill": "transporting-objects"
+    },
+    {
+      "action": "settle_release",
+      "id": "settle_release",
+      "routes": {
+        "failed": "FAILED",
+        "succeeded": "SUCCEEDED"
+      },
+      "skill": "transporting-objects"
+    }
+  ],
+  "schema_version": 1,
+  "start": "open_gripper",
+  "terminals": {
+    "FAILED": "failed",
+    "SUCCEEDED": "succeeded"
+  }
+}

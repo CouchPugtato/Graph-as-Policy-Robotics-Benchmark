@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "title": "Rehearse, inspect failures, improve the harness",
+  "subtitle": "Single-object grocery pick-and-place across ten deterministic variations",
+  "graph": "policy.json",
+  "scene_image": "assets/scene.png",
+  "seconds_per_iteration": 2,
+  "iterations": [
+    {"iteration": 1, "successes": 4, "trials": 10},
+    {"iteration": 2, "successes": 4, "trials": 10},
+    {"iteration": 3, "successes": 5, "trials": 10},
+    {"iteration": 4, "successes": 8, "trials": 10},
+    {"iteration": 5, "successes": 8, "trials": 10},
+    {"iteration": 6, "successes": 8, "trials": 10},
+    {"iteration": 7, "successes": 8, "trials": 10},
+    {"iteration": 8, "successes": 9, "trials": 10},
+    {"iteration": 9, "successes": 9, "trials": 10},
+    {"iteration": 10, "successes": 9, "trials": 10,
+     "graph": "../graphs/generated/codex-20261009T145742Z-f28cf576/accepted.json",
+     "result": "../results/raw/graph-pick-place-20261009-234604-f0a4972c.json",
+     "footage": "recordings/seed-0-close.mp4",
+     "clip_start_s": 0, "playback_speed": 1}
+  ]
+}

@@ -21,6 +21,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--target", default="alphabet_soup")
     parser.add_argument("--result-file", type=Path)
     parser.add_argument("--headless", action="store_true")
+    parser.add_argument("--record-mp4", type=Path)
     parser.add_argument("--baseline-diagnostics", action="store_true")
     parser.add_argument("--physics-hz", type=int, choices=(60, 120), default=120)
     parser.add_argument("--target-geometry", type=Path)
@@ -70,8 +71,11 @@ def main() -> int:
 
     diagnostics = {}
     descent_trace_stream = None
+    recorder = None
 
     def write_result(payload: dict) -> None:
+        if recorder is not None:
+            payload["recording"] = recorder.close()
         payload["run_revision"] = RUN_REVISION
         payload.setdefault("diagnostics", diagnostics)
         if args.result_file is not None:
@@ -83,7 +87,8 @@ def main() -> int:
             "width": 640,
             "height": 480,
             "active_gpu": 0, "physics_gpu": 0, "multi_gpu": False, "limit_cpu_threads": 2,
-            "extra_args": ["--enable", "isaacsim.robot_motion.motion_generation"],
+            "extra_args": ["--enable", "isaacsim.robot_motion.motion_generation"]
+            + (["--enable", "omni.videoencoding"] if args.record_mp4 else []),
         }
     )
     try:
@@ -422,8 +427,10 @@ def main() -> int:
 
         def step() -> None:
             nonlocal elapsed_s
-            world.step(render=False)
+            world.step(render=recorder.render_due() if recorder else False)
             elapsed_s += physics_dt_s
+            if recorder:
+                recorder.after_step()
 
         def capture():
             nonlocal latest_telemetry, latest_evaluation, last_capture_time_s
@@ -996,6 +1003,11 @@ def main() -> int:
                 f"release did not satisfy evaluator checkpoints: {latest_evaluation.checkpoints}"
             )
 
+        if args.record_mp4:
+            from gap_isaac.scene_recording import SceneRecorder
+            recorder = SceneRecorder(args.record_mp4, world, args.physics_hz)
+            print(f"Recording scene to {recorder.output}", flush=True)
+
         if args.grasp_validation:
             checkpoints = []
             diagnostics["physical_grasp_checkpoints"] = checkpoints
@@ -1185,6 +1197,8 @@ def main() -> int:
         traceback.print_exc()
         return 1
     finally:
+        if recorder is not None:
+            recorder.close()
         if descent_trace_stream is not None:
             descent_trace_stream.close()
         simulation_app.close()
