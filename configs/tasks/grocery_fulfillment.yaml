@@ -1,0 +1,53 @@
+schema_version: 1
+task_id: grocery_fulfillment
+instruction_template: "Pick up the {target_description} and place it in the basket."
+robot: franka_panda
+target_ids:
+  - alphabet_soup
+  - chocolate_pudding
+  - tomato_sauce
+  - cream_cheese
+container_id: basket
+objects:
+  - id: alphabet_soup
+    semantic_label: Alphabet Soup
+    asset: isaac/assets/grocery/alphabet_soup.usd
+    footprint_radius_m: 0.04
+    target_description: alphabet soup can with a blue and yellow label
+  - id: chocolate_pudding
+    semantic_label: Chocolate Pudding
+    asset: isaac/assets/grocery/chocolate_pudding.usd
+    footprint_radius_m: 0.045
+    target_description: chocolate pudding box
+  - id: tomato_sauce
+    semantic_label: Tomato Sauce
+    asset: isaac/assets/grocery/tomato_sauce.usd
+    footprint_radius_m: 0.04
+    target_description: tomato sauce can
+  - id: cream_cheese
+    semantic_label: Cream Cheese
+    asset: isaac/assets/grocery/cream_cheese.usd
+    footprint_radius_m: 0.06
+    target_description: flat cream cheese box
+  - id: basket
+    semantic_label: Basket
+    asset: isaac/assets/grocery/basket.usd
+    footprint_radius_m: 0.13
+spawn:
+  xy_m:
+    x: [0.35, 0.75]
+    y: [-0.30, 0.30]
+  yaw_deg: [-180.0, 180.0]
+minimum_clearance_m: 0.025
+max_sampling_attempts: 1000
+settle_time_s: 2.0
+timeout_s: 180.0
+evaluation:
+  lift_clearance_m: 0.03
+  containment_margin_m: 0.005
+  max_release_speed_m_s: 0.10
+  collision_impulse_threshold_ns: 1.0
+  basket_wall_thickness_m: 0.015
+  basket_base_thickness_m: 0.020
+  grasp_contact_frames: 3
+  release_contact_frames: 2

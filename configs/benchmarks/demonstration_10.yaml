@@ -1,0 +1,11 @@
+schema_version: 1
+name: demonstration_10
+task_config: ../tasks/grocery_fulfillment.yaml
+task_ids: [alphabet_soup]
+seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+workers: 1
+record_video: false
+enable_tracing: true
+checkpoint_mode: raise
+success_gate: 1.0
+output_dir: ../../results/layout-trials

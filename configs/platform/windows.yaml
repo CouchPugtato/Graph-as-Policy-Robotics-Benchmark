@@ -1,0 +1,13 @@
+schema_version: 1
+role: simulator
+operating_system: Windows 11 x64
+isaac_sim_version: 6.1.0
+isaac_lab_version: 2.3.0
+ros_distribution: null
+ros_domain_id: null
+gpu:
+  index: 0
+  expected_name: NVIDIA GeForce RTX 5080
+  exclusive: true
+required_environment:
+  - ISAAC_SIM_PATH
