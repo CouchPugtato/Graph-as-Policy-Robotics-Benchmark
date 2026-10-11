@@ -1,12 +1,12 @@
 # Graph-as-Policy for Isaac Sim
 
-<video controls width="100%" src="docs/visualizations/visualizer_final_graph.mp4"></video>
+![Graph-as-Policy grocery benchmark visualization](docs/visualizations/visualizer_final_graph.gif)
 
-This research MVP recreates the **Fulfill Grocery Orders** benchmark specifically,
-using a Graph-as-Policy controller for deterministic, single-object grocery
-pick-and-place with a Franka robot in NVIDIA Isaac Sim. It samples repeatable
-scene layouts, represents the task as explicit skill and action nodes with
-success/failure routes, runs bounded simulator checks, and records structured
+This project is a focused recreation of the **Fulfill Grocery Orders** benchmark,
+implementing a Graph-as-Policy controller for deterministic, single-object
+grocery pick-and-place with a Franka robot in NVIDIA Isaac Sim. It samples
+repeatable scene layouts, represents the task as explicit skill and action nodes
+with success/failure routes, runs bounded simulator checks, and records structured
 evidence for evaluation. The supporting Python tools also validate configuration
 and inspect observations without starting Isaac Sim.
 
