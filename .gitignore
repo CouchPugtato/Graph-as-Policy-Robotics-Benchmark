@@ -41,3 +41,8 @@ Thumbs.db
 Desktop.ini
 
 *.md
+!README.md
+
+!/docs/
+!/docs/visualizations/
+!/docs/visualizations/visualizer_final_graph.mp4
