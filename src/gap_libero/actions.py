@@ -88,6 +88,7 @@ class LiberoGraphActions:
         self.rotation_scale = output_high[3:]
         self.hold_position = backend.eef_position().copy()
         self.hold_orientation = None
+        self.timeline = []
 
     def rotation_error(self, target: Any) -> np.ndarray:
         if target is None:
@@ -196,8 +197,16 @@ class LiberoGraphActions:
         return NodeResult(detail="bounded hold completed")
 
     def registry(self) -> dict[str, Any]:
-        return {name: (lambda state, key=name: self.execute_action(key, state))
+        return {name: (lambda state, key=name: self.timed_action(key, state))
                 for name in self.plan.actions}
+
+    def timed_action(self, name, state):
+        start = self.backend.steps
+        try:
+            return self.execute_action(name, state)
+        finally:
+            self.timeline.append({"action": name, "start_step": start,
+                                  "step": self.backend.steps})
 
 
 def run_graph(backend: LiberoBackend, policy: GraphPolicy, plan: RunPlan) -> dict[str, Any]:
@@ -209,7 +218,7 @@ def run_graph(backend: LiberoBackend, policy: GraphPolicy, plan: RunPlan) -> dic
     result = GraphPolicyExecutor(policy, actions.registry(), max_steps=64).execute()
     success = backend.task_success()
     return {"ok": result.status == "succeeded" and success, "backend": "libero",
-            "graph": result.as_dict(), "steps": backend.steps,
+            "graph": result.as_dict(), "steps": backend.steps, "trajectory": actions.timeline,
             "evaluation": {"status": "succeeded" if success else "failed",
                            "task_success": success,
                            "collision_check": "configured geometry pairs only",

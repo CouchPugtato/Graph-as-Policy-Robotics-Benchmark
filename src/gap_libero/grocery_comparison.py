@@ -100,11 +100,15 @@ def build_action_plan(backend, seed):
     return RunPlan.model_validate(plan)
 
 
-def compare_grocery(output: Path, graph: Path = DEFAULT_GRAPH, seed=0, capture_only=False):
+def compare_grocery(output: Path, graph: Path = DEFAULT_GRAPH, seed=0, capture_only=False,
+                    record=False):
     graph_bytes = graph.read_bytes()
     policy = GraphPolicy.from_json(graph)
     backend, metadata = create_grocery_backend(seed, motion_enabled=not capture_only)
     try:
+        if record:
+            backend.start_recording(output / "recording")
+            metadata["recording"] = {"frames": "recording/frames.json", "fps": 20}
         sources = ["src/gap_libero/grocery_task.py", "src/gap_libero/grocery_comparison.py",
                    "src/gap_libero/actions.py", "src/gap_libero/backend.py",
                    "src/gap_isaac/grocery_scene.py", "src/gap_isaac/sampling.py",
@@ -172,7 +176,8 @@ def compare_grocery(output: Path, graph: Path = DEFAULT_GRAPH, seed=0, capture_o
                     checkpoints["target_released"] = bool(values["target_released"])
                     checkpoints["target_contained"] = bool(values["target_contained"])
                 trajectory.append({"action": name, "outcome": result.outcome,
-                    "step": backend.steps, "eef_position_m": backend.eef_position().tolist(),
+                    "start_step": before["step"], "step": backend.steps,
+                    "eef_position_m": backend.eef_position().tolist(),
                     "grasped": held, "before": before, "after": phase_state(), **values})
                 return result
             return execute

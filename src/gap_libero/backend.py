@@ -87,6 +87,7 @@ class LiberoBackend:
         self.env, self.camera = env, camera
         self.motion_enabled, self.max_steps = motion_enabled, max_steps
         self.steps, self.closed, self.done = 0, False, False
+        self.recorder = None
         self.disallowed_collisions = []
         self.observation: dict[str, Any] | None = None
         self.forbidden_pairs = set()
@@ -152,6 +153,8 @@ class LiberoBackend:
         self.check_contacts()
         self.observation, _, done, _ = self.env.step(command.tolist())
         self.steps += 1
+        if self.recorder is not None:
+            self.recorder.record(self.observation, self.steps)
         self.done = bool(done)
         self.check_workspace(self.eef_position())
         self.check_contacts()
@@ -222,10 +225,23 @@ class LiberoBackend:
         bundle.validate()
         return bundle
 
+    def start_recording(self, directory) -> None:
+        from gap_libero.recording import FrameRecorder
+
+        if self.recorder is not None or self.observation is None:
+            raise RuntimeError("recording requires a ready backend and no existing recorder")
+        self.recorder = FrameRecorder(directory, self.camera,
+                                      max_frames=self.max_steps + 1)
+        self.recorder.record(self.observation, self.steps)
+
     def close(self) -> None:
         if not self.closed:
             self.closed = True
-            self.env.close()
+            try:
+                if self.recorder is not None:
+                    self.recorder.close()
+            finally:
+                self.env.close()
 
 
 def create_backend(*, suite: str = "libero_spatial", task_id: int = 0, init_state_id: int = 0,

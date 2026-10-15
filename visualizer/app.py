@@ -109,28 +109,39 @@ ACTION_DETAILS = {
 }
 
 
-def policy_lanes(nodes):
+def policy_lanes(nodes, membership=None):
     lanes = []
     releasing = False
     for node in nodes:
         if node["action"] == "release_object":
             releasing = True
-        title = node["skill"]
-        if title == "transporting-objects":
+        title = membership.get(node["id"], node["skill"]) if membership else node["skill"]
+        if not membership and title == "transporting-objects":
             title += " / release" if releasing else " / transport"
-        if not lanes or lanes[-1][0] != title or len(lanes[-1][1]) >= 4:
+        limit = 6 if membership else 4
+        if not lanes or lanes[-1][0] != title or len(lanes[-1][1]) >= limit:
             lanes.append((title, []))
         lanes[-1][1].append(node)
     return lanes
 
 
-def policy_bubble(ax, x, y, label, subtitle, kind="script", changed=False):
+def policy_bubble(ax, x, y, label, subtitle, kind="script", changed=False,
+                  active=False, completed=False, failed=False):
     fill, edge = {"script": ("#d6efd6", "#3f8f47"),
+                  "tool": ("#dcecff", BLUE),
                   "success": ("#d6efd6", GREEN), "failure": ("#f7d6d6", RED)}[kind]
+    if completed:
+        fill, edge = "#c4e7c9", GREEN
+    if active:
+        fill, edge = "#ffe4a5", ORANGE
+    if failed:
+        fill, edge = "#f7d6d6", RED
     ax.add_patch(FancyBboxPatch((x-1.325,y-.32),2.65,.64,
         boxstyle="round,pad=0.02,rounding_size=0.09", facecolor=fill,
-        edgecolor=ORANGE if changed else edge, linewidth=1.6 if changed else 1.1, zorder=5))
-    ax.text(x,y+.105,label,ha="center",va="center",fontsize=9,color="#263039",zorder=6)
+        edgecolor=ORANGE if changed and not (active or completed or failed) else edge,
+        linewidth=2.4 if active or failed else 1.6 if changed else 1.1, zorder=5))
+    label = "\n".join(textwrap.wrap(label.replace("_", " "), width=22))
+    ax.text(x,y+.105,label,ha="center",va="center",fontsize=8,color="#263039",zorder=6)
     ax.text(x,y-.135,f"({subtitle})",ha="center",va="center",
             fontsize=6.1 if len(subtitle) > 27 else 6.9,
             color="#555560",zorder=6)
@@ -138,9 +149,11 @@ def policy_bubble(ax, x, y, label, subtitle, kind="script", changed=False):
 
 def graph_panel(ax, record):
     graph = record["policy"]
-    lanes = policy_lanes(graph["nodes"])
+    membership = graph.get("metadata", {}).get("subgraph_membership")
+    lanes = policy_lanes(graph["nodes"], membership)
     top = 1.5 + (len(lanes)-1)*2.2
-    ax.set(xlim=(0,14.3),ylim=(-1.45,top+1.25))
+    right = max(14.3, max(len(members) for _, members in lanes)*3.1+.9)
+    ax.set(xlim=(0,right),ylim=(-1.45,top+1.25))
     ax.axis("off")
     positions = {}
     # lanes show skill phases without changing the executable flat policy
@@ -154,11 +167,18 @@ def graph_panel(ax, record):
         for column,node in enumerate(members):
             x = 1.95+column*3.1
             positions[node["id"]] = (x,y)
-            policy_bubble(ax,x,y,node["id"],ACTION_DETAILS.get(node["action"],node["skill"]),
-                          changed=node["id"] in record["changed"])
+            detail = ("bounded libero action" if record.get("backend") == "libero" else
+                      ACTION_DETAILS.get(node["action"],node["skill"]))
+            policy_bubble(ax,x,y,node["action"] if membership else node["id"], detail,
+                          kind=record.get("node_kinds", {}).get(node["id"], "script"),
+                          changed=node["id"] in record["changed"],
+                          active=node["id"] == record.get("active_node"),
+                          completed=node["id"] in record.get("completed_nodes", []),
+                          failed=node["id"] == record.get("failed_node"))
     failures = [key for key,status in graph["terminals"].items() if status != "succeeded"]
     successes = [key for key,status in graph["terminals"].items() if status == "succeeded"]
-    for names,base_x,kind in ((successes,6,"success"),(failures,11.9,"failure")):
+    for names,base_x,kind in ((successes,right*.42,"success"),
+                             (failures,right*.83,"failure")):
         for index,name in enumerate(names):
             y = -.65-index*.8
             positions[name] = (base_x,y)
@@ -171,8 +191,8 @@ def graph_panel(ax, record):
             if outcome == "failed" and target in failures:
                 bus_y = y-.92
                 route(ax,(x,y-.35),(x,bus_y),RED)
-                ax.plot([x,13.6,13.6],[bus_y,bus_y,ty+.23],color=RED,lw=.75,zorder=1)
-                route(ax,(13.6,ty+.23),(tx+1.36,ty),RED)
+                ax.plot([x,right-.7,right-.7],[bus_y,bus_y,ty+.23],color=RED,lw=.75,zorder=1)
+                route(ax,(right-.7,ty+.23),(tx+1.36,ty),RED)
             elif y == ty:
                 route(ax,(x+1.36,y),(tx-1.36,ty),GREEN)
             else:
@@ -225,8 +245,9 @@ def render(data, index, progress=1, size=(1920, 1080), video_frame=None):
             footage_ax.set_facecolor("#1b2329")
             footage_ax.text(.5, .5, "add simulation footage", transform=footage_ax.transAxes,
                             ha="center", color=MUTED)
-        video_label = ("simulation replay" if video_frame is not None else
-                       "static scene preview  no recording attached")
+        video_label = record.get("video_label") or (
+            "simulation replay" if video_frame is not None else
+            "static scene preview  no recording attached")
         footage_ax.text(.025, .94, video_label, transform=footage_ax.transAxes, fontsize=9,
                         color=FG, bbox=dict(boxstyle="round,pad=.4", fc="#14202a", ec="#68707a"))
         receipt = record["receipt"]
@@ -236,6 +257,7 @@ def render(data, index, progress=1, size=(1920, 1080), video_frame=None):
             color = GREEN if status == "succeeded" else RED
         else:
             label, color = "no run receipt attached", "#525c66"
+        label, color = record.get("run_label", label), record.get("run_color", color)
         footage_ax.text(.025, .04, label, transform=footage_ax.transAxes, fontsize=10,
                         color="white", bbox=dict(boxstyle="round,pad=.45", fc=color, ec="none"))
         fig.canvas.draw()
@@ -409,7 +431,8 @@ def viewer(data):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=["preview", "export", "view", "validate"])
+    parser.add_argument("mode", choices=["preview", "export", "view", "validate", "libero"])
+    parser.add_argument("--session", type=Path, help="harness session for libero video")
     parser.add_argument("--history", type=Path, default=HERE/"history.json")
     parser.add_argument("--output", type=Path)
     parser.add_argument("--iteration", type=int, default=10, help="iteration number for preview")
@@ -418,6 +441,14 @@ def main():
     parser.add_argument("--seconds", type=float)
     parser.add_argument("--replay-footage", type=Path, help="continuous scene video during history playback")
     args = parser.parse_args()
+    if args.mode == "libero":
+        from libero_export import export_session
+
+        try:
+            export_session(args.session, args.output)
+        except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as error:
+            parser.exit(1, f"LIBERO video stopped: {error}\n")
+        return
     if not 1 <= args.fps <= 60 or (args.seconds is not None and
             (not math.isfinite(args.seconds) or not .5 <= args.seconds <= 30)):
         parser.error("use fps from one to sixty and seconds from half to thirty")

@@ -99,7 +99,8 @@ class Harness:
             if read(manifest)["task_sha256"] != self.task_sha256:
                 raise ValueError("task catalog references or limits changed use a new session")
         else:
-            dump(manifest, {"task_sha256": self.task_sha256, **self.snapshot})
+            dump(manifest, {"task_sha256": self.task_sha256,
+                            "task_manifest_path": str(self.task_path), **self.snapshot})
 
     def versions(self):
         return sorted(path for path in self.session.glob("v[0-9][0-9][0-9][0-9]")

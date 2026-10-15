@@ -59,7 +59,7 @@ def execute(args: argparse.Namespace) -> dict:
         from gap_libero.grocery_comparison import DEFAULT_GRAPH, compare_grocery
 
         return compare_grocery(args.output, args.graph or DEFAULT_GRAPH, args.seed,
-                               capture_only=not args.enable_motion)
+                               capture_only=not args.enable_motion, record=args.record)
     from gap_libero.backend import create_backend
 
     if args.mode == "run":
@@ -81,6 +81,8 @@ def execute(args: argparse.Namespace) -> dict:
         backend, metadata = create_backend(suite=args.suite, task_id=args.task_id,
                                            init_state_id=args.init_state_id, seed=args.seed)
     try:
+        if args.mode == "run" and args.record:
+            backend.start_recording(args.output / "recording")
         if args.mode == "capture":
             bundle = backend.capture()
             bundle.save(args.output / "observation")
@@ -91,6 +93,9 @@ def execute(args: argparse.Namespace) -> dict:
             result = run_graph(backend, policy, plan)
             result["graph_sha256"] = hashlib.sha256(args.graph.read_bytes()).hexdigest()
             result["plan_sha256"] = hashlib.sha256(args.plan.read_bytes()).hexdigest()
+            result["seed"] = plan.seed
+            if args.record:
+                result["recording"] = {"frames": "recording/frames.json", "fps": 20}
         return {**result, **metadata, "models_loaded": False}
     finally:
         backend.close()
@@ -113,10 +118,12 @@ def main() -> None:
     run.add_argument("--graph", type=Path, required=True)
     run.add_argument("--plan", type=Path, required=True)
     run.add_argument("--enable-motion", action="store_true")
+    run.add_argument("--record", action="store_true")
     grocery = commands.add_parser("compare-grocery")
     grocery.add_argument("--seed", type=int, choices=range(10), default=0)
     grocery.add_argument("--graph", type=Path)
     grocery.add_argument("--enable-motion", action="store_true")
+    grocery.add_argument("--record", action="store_true")
     for command in (capture, run, grocery):
         command.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()

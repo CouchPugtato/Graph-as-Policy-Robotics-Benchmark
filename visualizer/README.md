@@ -14,6 +14,45 @@ iteration scrubber.
 
 ## Run from the repository root
 
+### Automatic LIBERO harness video
+
+```powershell
+.\.venv\Scripts\python.exe .\visualizer\app.py libero
+```
+
+This single mode argument selects the most recently evaluated session under
+results/harness. It reads actual per version feedback and graphs rather than the
+manual sample history. If the final policy has no matching recording, it runs one
+bounded representative LIBERO variation and records camera observations. Keep Isaac,
+LM Studio and perception workers closed. No API calls or model loading are involved.
+
+The video first reveals each evaluated revision and its measured success rate, then
+plays the final policy continuously while highlighting active and completed graph
+nodes using recorded simulator steps. Subgraph frames come from actual agent generated
+membership. Earlier graphs are not presented as controlling the final recording.
+Missing or unevaluated revisions are not assigned invented success rates.
+
+The representative variation is the first successful trial of the final evaluated
+revision, or its first trial if none succeeded. A new recording does not alter the
+historical campaign rate. Its actual success or failure is shown at the end. Subsequent
+exports reuse matching footage. Output is a new session/visualizations/TIMESTAMP folder
+containing libero-final.mp4 and a provenance manifest. Original graphs, feedback,
+receipts and videos are never overwritten. Video is 720p at 60 fps; native camera
+motion is recorded at 20 fps and frames are held for display rather than interpolated.
+Only a small image cache and two CPU encoder threads are used after the simulator exits.
+
+To select a particular session using one positional argument instead:
+
+```powershell
+.\.venv\Scripts\python.exe .\visualizer\libero_export.py .\results\harness\SESSION
+```
+
+The app also supports libero --session PATH and --output PATH. At least one completed
+harness evaluation is required. An empty session or historical Isaac sample history
+cannot supply LIBERO iteration rates. The supported recorder works with the existing
+gap_libero.cli compare-grocery and run task adapters; other adapters need their own
+timed receipt and recording support.
+
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r .\visualizer\requirements.txt
 
