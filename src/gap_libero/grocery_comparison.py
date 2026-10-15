@@ -26,6 +26,9 @@ def closest_parallel_jaw_yaw(yaw: float, reference: float = 0.0) -> float:
 
 def create_grocery_backend(seed=0, motion_enabled=False, max_steps=1000, workspace=None,
                            **settings):
+    from gap_libero.runtime_config import prepare_runtime_config
+
+    prepare_runtime_config()
     from libero.libero.envs import OffScreenRenderEnv
 
     from gap_libero import grocery_task  # noqa: F401 - registers the custom libero problem
@@ -65,10 +68,12 @@ def build_action_plan(backend, seed):
     basket = data.get_body_xpos(env.objects_dict["basket"].root_body).copy()
     grasp_z = float(target[2] + 0.035)
     transit_z = 0.28
-    orientation = [1, 0, 0, 0]
+    # keep the wrist near its neutral heading as the arm moves around the base
+    grasp_yaw = math.atan2(float(target[1]), float(target[0])) + math.pi / 2
+    orientation = [math.cos(grasp_yaw / 2), math.sin(grasp_yaw / 2), 0, 0]
     basket_rotation = data.get_body_xmat(env.objects_dict["basket"].root_body)
     basket_yaw = math.atan2(basket_rotation[1, 0], basket_rotation[0, 0])
-    approach_heading = math.atan2(float(basket[1]), float(basket[0]))
+    approach_heading = math.atan2(float(basket[1]), float(basket[0])) + math.pi / 2
     basket_yaw = closest_parallel_jaw_yaw(basket_yaw, approach_heading)
     basket_orientation = [math.cos(basket_yaw / 2), math.sin(basket_yaw / 2), 0, 0]
 
@@ -138,6 +143,8 @@ def compare_grocery(output: Path, graph: Path = DEFAULT_GRAPH, seed=0, capture_o
             data, model = backend.env.sim.data, backend.env.sim.model
             return {"step": backend.steps,
                 "eef_position_m": backend.eef_position().tolist(),
+                "eef_orientation_xyzw": backend.eef_orientation().tolist(),
+                "arm_joint_positions_rad": backend.env.robots[0]._joint_positions.tolist(),
                 "grasped": backend.grasped("alphabet_soup"),
                 "objects": {name: {
                     "position_m": data.get_body_xpos(obj.root_body).tolist(),

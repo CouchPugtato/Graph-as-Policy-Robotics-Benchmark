@@ -14,24 +14,90 @@ This restriction keeps the integration small and auditable.
 
 ## Commands
 
-From the repository root the existing core environment is sufficient. No new model
-weights or packages are needed. The transport uses the installed httpx and Pydantic.
+From the repository root the core environment is sufficient. No model weights are
+needed. The transport uses httpx and Pydantic with python dotenv for local settings.
 
 ```powershell
 .\.venv\Scripts\python.exe -m gap_harness.cli check
 ```
 
-Set OPENAI_API_KEY privately in the shell that runs generation. Do not paste it into
-chat, task JSON or a command that will be committed. API requests send the instruction,
-catalog, selected skill references and revision feedback to OpenAI. Images are not
-uploaded automatically. Generation is billed separately from a Codex subscription.
+The CLI loads the repository root .env automatically without variable expansion.
+Existing shell settings take precedence. Only OPENAI_API_KEY, OPENAI_BASE_URL,
+OPENAI_MODEL, OPENAI_REASONING_EFFORT and GAP_CODEX_PROXY_KEY are read from the file.
+Never paste credentials
+into chat, task JSON or a command that will be committed. Requests send the instruction,
+catalog, selected skill references and revision feedback to the configured service.
+Images are not uploaded automatically.
+
+### Local Codex compatibility proxy
+
+The current .env selects the loopback proxy and gpt-6.1-sol with medium reasoning.
+Requests explicitly send reasoning.effort=medium. OPENAI_API_KEY stays empty.
+Use --model and --reasoning-effort to override these settings for a particular run.
+Effective settings are saved in each call request and version lineage without
+rewriting historical graph versions.
+The pinned unofficial server uses the existing Codex ChatGPT login and plan allowance.
+It is not a locally running model and does not bypass plan limits or guarantee free
+usage. Keep it on loopback. Never copy Codex tokens into .env or share auth.json.
+
+Install optional tools on a new machine, then start the server:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e ".[harness-tools]"
+# run codex login first if this machine is not already signed in
+.\.venv\Scripts\python.exe -m gap_harness.proxy start
+.\.venv\Scripts\python.exe -m gap_harness.cli api-check --live
+```
+
+The start helper uses uvx openai-api-server-via-codex==0.2.2 and the checked in
+codex-proxy.toml. One concurrent request is allowed and public response storage is
+disabled. Daemon state and logs live under cache/codex-proxy/run. No GPU models or
+simulators are started. The API check sends one small structured output request.
+
+```powershell
+.\.venv\Scripts\python.exe -m gap_harness.proxy status
+.\.venv\Scripts\python.exe -m gap_harness.proxy stop
+```
+
+The project stop helper verifies the daemon process identity and stops its supervisor
+and matching worker on Windows because the upstream daemon stop can leave a worker
+running. It does not stop unrelated applications or edit Codex authentication.
+
+GAP_CODEX_PROXY_KEY is optional client to proxy authentication only. If enabling it,
+configure the same incoming api_key in the local proxy server. Platform OPENAI_API_KEY
+is never forwarded to the proxy. Redirects and environment HTTP proxies are disabled.
+Only the official HTTPS Platform endpoint or a loopback base URL ending in /v1 is
+accepted. There is no automatic fallback from the proxy to paid Platform API calls.
+
+### Direct Platform API
+
+Set OPENAI_BASE_URL=https://api.openai.com/v1 and provide OPENAI_API_KEY privately in
+.env or the shell. Direct Platform usage is billed separately from Codex subscription
+allowance. GAP_CODEX_PROXY_KEY is not used for the Platform API.
 
 ```powershell
 .\.venv\Scripts\python.exe -m gap_harness.cli generate --live
 ```
 
-The command prints its session and version path. To rehearse that version, close
-Isaac, LM Studio and perception workers first. Replace SESSION with the printed path.
+The command prints its session and version path.
+
+Generation progress is printed immediately to stderr with elapsed time. It identifies
+the current revision, coordinator, skill agent index and assigned skill, checkpoint
+pass, validation stages and saved graph path. Each completed call reports its duration,
+input and output tokens, cumulative reported session tokens and used request count.
+A status only heartbeat appears every fifteen seconds while a model request is pending.
+It does not stream model reasoning, print prompts or responses, retry requests or extend
+timeouts. Missing usage is marked as incomplete rather than treated as zero cost.
+The client timeout shown is a configuration value, not a guaranteed remote cancellation
+deadline. Token totals are informational and do not add an aggregate token budget.
+Prior saved request usage is included when resuming the same session.
+
+When iterating, progress also shows the current revision attempt, variation index,
+worker log path, each seed result and the running rehearsal score. Normal completion
+keeps the final JSON summary on stdout so it remains usable by other scripts.
+
+To rehearse that version, close Isaac, LM Studio and perception workers first.
+Replace SESSION with the printed path.
 
 ```powershell
 .\.venv\Scripts\python.exe -m gap_harness.cli evaluate --version SESSION\v0001 --execute
@@ -110,6 +176,16 @@ analyzing failed rehearsals and refining the graph across sampled variations. He
    marks omitted state evidence rather than silently claiming it was analyzed.
 7. Regenerate checkpoints in the independent pass, then validate and rerun all seeds.
 Keep every revision including regressions. An accepted marker requires all seeds.
+
+Reevaluating the same version preserves the original evaluation and feedback.
+Subsequent attempts live in `evaluation-0002`, `evaluation-0003` and so on, with
+their own feedback and selection files. The harness and visualizer read the latest
+completed attempt. Missing or mismatched execution evidence stops the suite and
+blocks policy revision until the runner is repaired and the same graph reevaluated.
+Incomplete attempts have no policy success rate and do not blame skill checkpoints.
+LIBERO workers use the prepared `cache/libero-config` directory by default, honor
+an explicit `LIBERO_CONFIG_PATH`, and have standard input disconnected so setup
+prompts cannot hang an evaluation. No model requests are made by `evaluate`.
 
 The current implementation regenerates the assigned subgraphs each round rather than
 patching source files. The coordinator may preserve or change topology. Physics,

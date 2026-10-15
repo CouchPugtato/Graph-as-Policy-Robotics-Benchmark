@@ -138,6 +138,9 @@ def main() -> None:
     else:
         args.output.mkdir(parents=True, exist_ok=False)
         try:
+            from gap_libero.runtime_config import prepare_runtime_config
+
+            prepare_runtime_config()
             result = execute(args)
         except Exception as error:
             result = {"ok": False, "backend": "libero", "error_type": type(error).__name__,

@@ -173,6 +173,15 @@ transport and release using all ten nodes of the unchanged accepted graph.
 This does not establish performance on official LIBERO bowl tasks.
 No Isaac benchmark score applies to LIBERO.
 
+Grocery bindings derive the downward grasp heading from the target bearing plus
+a quarter turn, keeping the Panda wrist away from its end stop. Basket headings
+use the same radial reference while preserving parallel jaw alignment with the
+basket. These are shared geometry rules, not seed specific corrections. Collision,
+slip, containment and motion budgets are unchanged. Receipts include implementation
+hashes and phase joint positions so control changes remain distinguishable from
+generated graph revisions. Compare graph versions with identical binding hashes
+when attributing an improvement to generation alone.
+
 ## Upstream interfaces
 
 - [LIBERO environment wrapper](https://github.com/Lifelong-Robot-Learning/LIBERO/blob/8f1084e3132a39270c3a13ebe37270a43ece2a01/libero/libero/envs/env_wrapper.py)

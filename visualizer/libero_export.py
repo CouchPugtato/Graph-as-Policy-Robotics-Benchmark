@@ -16,6 +16,8 @@ from uuid import uuid4
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
+from gap_harness.evaluations import evaluation_complete, feedback_path, load_feedback
+
 try:
     from . import app
 except ImportError:
@@ -35,12 +37,16 @@ def sha256(path):
 def latest_session():
     candidates = [path for path in (ROOT / "results/harness").glob("*")
                   if (path / "session.json").is_file()
-                  and list(path.glob("v[0-9][0-9][0-9][0-9]/feedback.json"))]
+                  and any(load_feedback(version) is not None
+                          and evaluation_complete(load_feedback(version))
+                          for version in path.glob("v[0-9][0-9][0-9][0-9]"))]
     if not candidates:
         raise ValueError("no evaluated harness session found run harness rehearsal first "
                          "or provide --session PATH")
     return max(candidates, key=lambda path: max(
-        feedback.stat().st_mtime_ns for feedback in path.glob("v*/feedback.json")))
+        feedback_path(version).stat().st_mtime_ns for version in path.glob("v*")
+        if feedback_path(version) is not None
+        and evaluation_complete(load_feedback(version))))
 
 
 def session_history(session):
@@ -48,11 +54,11 @@ def session_history(session):
     manifest = read(session / "session.json")
     iterations, previous = [], None
     for version in sorted(session.glob("v[0-9][0-9][0-9][0-9]")):
-        if not (version / "feedback.json").is_file():
+        feedback = load_feedback(version)
+        if feedback is None or not evaluation_complete(feedback):
             continue
         graph_path = version / "graph.json"
         digest = sha256(graph_path)
-        feedback = read(version / "feedback.json")
         validation = read(version / "validation.json")
         trials = feedback.get("records", [])
         if (feedback.get("graph_sha256") != digest or not validation.get("ok")
@@ -72,7 +78,9 @@ def session_history(session):
                 node_kinds.update({f"{subgraph['name']}__{node['name']}": node["kind"]
                                    for node in subgraph["nodes"]})
         representative = next((trial for trial in trials if trial["success"]), trials[0])
-        receipt_path = version / "evaluation" / f"seed-{representative['seed']}" / "receipt.json"
+        summary = feedback_path(version)
+        evaluations = version / "evaluation" if summary.parent == version else summary.parent
+        receipt_path = evaluations / f"seed-{representative['seed']}" / "receipt.json"
         receipt = read(receipt_path) if receipt_path.is_file() else None
         if receipt and (receipt.get("graph_sha256") != digest
                         or receipt.get("seed") != representative["seed"]):
@@ -139,11 +147,12 @@ def record_final(session, record, manifest, destination):
     command.append("--record")
     environment = {key: value for key, value in os.environ.items()
                    if key not in {"OPENAI_API_KEY", "OPENROUTER_API_KEY", "HF_TOKEN",
-                                  "HUGGING_FACE_HUB_TOKEN"}}
+                                  "HUGGING_FACE_HUB_TOKEN", "GAP_CODEX_PROXY_KEY"}}
     environment.setdefault("LIBERO_CONFIG_PATH", str(cwd / "cache/libero-config"))
     print("Recording one final LIBERO run keep Isaac and perception models closed", flush=True)
     with (destination.parent / "recording.log").open("x", encoding="utf-8") as handle:
         subprocess.run(command, cwd=cwd, env=environment, stdout=handle,
+                       stdin=subprocess.DEVNULL,
                        stderr=subprocess.STDOUT, check=False,
                        timeout=min(runner.get("timeout_s", 120), 180))
     receipt_path = destination / runner.get("receipt", "receipt.json")

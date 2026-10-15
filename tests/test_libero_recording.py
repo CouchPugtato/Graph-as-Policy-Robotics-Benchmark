@@ -79,6 +79,30 @@ def test_history_uses_measured_versions_and_no_manual_presentation_rates(tmp_pat
     assert data["iterations"][1]["changed"] == []
 
 
+def test_history_uses_retry_receipt_and_preserves_original(tmp_path):
+    session = session_fixture(tmp_path, 1)
+    version = session / "v0001"
+    original = (version / "feedback.json").read_bytes()
+    attempt = version / "evaluation-0002"
+    attempt.mkdir()
+    (attempt / "feedback.json").write_bytes(original)
+    output = attempt / "seed-0"
+    receipt_path = recording_fixture(output, version / "graph.json")
+    data, _ = libero_export.session_history(session)
+    assert data["iterations"][0]["receipt"] == json.loads(receipt_path.read_text())
+    assert (version / "feedback.json").read_bytes() == original
+
+
+def test_history_excludes_startup_failures_including_legacy_receipts(tmp_path):
+    session = session_fixture(tmp_path, 1)
+    path = session / "v0001/feedback.json"
+    feedback = json.loads(path.read_text())
+    feedback["records"][0].update(graph_bound=False, known_trace=False, seed_bound=False)
+    path.write_text(json.dumps(feedback))
+    with pytest.raises(ValueError, match="no evaluated"):
+        libero_export.session_history(session)
+
+
 def test_tampered_rate_or_graph_is_rejected(tmp_path):
     session = session_fixture(tmp_path)
     path = session / "v0002/feedback.json"

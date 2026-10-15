@@ -1,0 +1,15 @@
+[server]
+host = "127.0.0.1"
+port = 18080
+default_model = "gpt-6.1-sol"
+timeout = 180.0
+verbose = false
+max_stored_items = 0
+max_concurrent_requests = 1
+
+[codex]
+auth_json = "~/.codex/auth.json"
+
+[daemon]
+state_dir = "cache/codex-proxy/run"
+stop_timeout = 10.0

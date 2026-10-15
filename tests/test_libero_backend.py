@@ -320,6 +320,41 @@ def test_grocery_bindings_cover_original_graph_actions_without_isaac_waypoints()
     assert plan.actions["move_over_basket"].position_m[:2] == pytest.approx([0.4, -0.25])
     assert plan.actions["lift_grasped"].require_grasp
     assert plan.actions["settle_release"].kind == "verify"
+    heading = np.arctan2(0.15, 0.6) + np.pi / 2
+    assert plan.actions["descend_to_grasp"].orientation_xyzw == pytest.approx(
+        [np.cos(heading / 2), np.sin(heading / 2), 0, 0])
+
+
+@pytest.mark.parametrize("target_xy,basket_yaw", [
+    ((0.73, 0.27), -1.14), ((0.60, 0.15), 0.7), ((0.44, 0.28), 2.1),
+    ((0.40, -0.25), -2.8),
+])
+def test_grocery_headings_follow_radial_approach_without_changing_basket_alignment(
+        target_xy, basket_yaw):
+    from gap_libero.grocery_comparison import build_action_plan
+
+    backend, env = make_backend(motion_enabled=True)
+    env.env.sim = env.sim
+    env.env.objects_dict.update(alphabet_soup=env.target,
+                                basket=SimpleNamespace(root_body="basket_body"))
+    backend.workspace = np.array([[-0.35, -0.85, 0.02], [1, 0.85, 1.1]])
+    env.sim.data.get_body_xpos = lambda name: np.array(
+        [*target_xy, 0.055] if name == "target_body" else [0.4, -0.25, 0])
+    cosine, sine = np.cos(basket_yaw), np.sin(basket_yaw)
+    env.sim.data.get_body_xmat = lambda name: np.array(
+        [[cosine, -sine, 0], [sine, cosine, 0], [0, 0, 1]])
+    plan = build_action_plan(backend, 0)
+    grasp = plan.actions["descend_to_grasp"].orientation_xyzw
+    yaw = 2 * np.arctan2(grasp[1], grasp[0])
+    assert yaw == pytest.approx(np.arctan2(target_xy[1], target_xy[0]) + np.pi / 2)
+    carry = plan.actions["move_over_basket"].orientation_xyzw
+    carry_yaw = 2 * np.arctan2(carry[1], carry[0])
+    reference = np.arctan2(-0.25, 0.4) + np.pi / 2
+    assert abs(carry_yaw - reference) <= np.pi / 2
+    assert np.cos(2 * carry_yaw) == pytest.approx(np.cos(2 * basket_yaw))
+    assert np.sin(2 * carry_yaw) == pytest.approx(np.sin(2 * basket_yaw))
+    assert plan.max_episode_steps == backend.max_steps
+    assert plan.maximum_slip_m == 0.015
 
 
 def test_orientation_control_uses_grip_site_not_wrist_body_frame():

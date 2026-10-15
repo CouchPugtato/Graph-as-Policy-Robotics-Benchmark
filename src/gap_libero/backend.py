@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import math
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -248,9 +247,9 @@ def create_backend(*, suite: str = "libero_spatial", task_id: int = 0, init_stat
                    seed: int = 0, **settings: Any) -> tuple[LiberoBackend, dict[str, Any]]:
     if suite not in SUITES or min(task_id, init_state_id, seed) < 0:
         raise ValueError("invalid suite or negative task state or seed")
-    config_path = os.environ.get("LIBERO_CONFIG_PATH")
-    if not config_path or not (Path(config_path) / "config.yaml").is_file():
-        raise RuntimeError("set LIBERO_CONFIG_PATH to a prepared config directory first")
+    from gap_libero.runtime_config import prepare_runtime_config
+
+    prepare_runtime_config()
     # simulator imports remain isolated from isaac and metadata checks
     from libero.libero import benchmark, get_libero_path
     from libero.libero.envs import OffScreenRenderEnv

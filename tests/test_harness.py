@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import io
 import json
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -10,11 +12,17 @@ import pytest
 from gap_harness.engine import Harness, digest, read
 from gap_harness.feedback import aggregate_feedback, build_trial_feedback, compact_feedback
 from gap_harness.models import CheckpointSet, Subgraph, Task, Topology
+from gap_harness.progress import Progress
 from gap_harness.provider import OpenAIResponses
 from gap_harness.workflow import compile_workflow, validate_topology
 from gap_isaac.graph_policy import GraphPolicy, GraphPolicyExecutor, NodeResult
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.fixture(autouse=True)
+def isolated_api_endpoint(monkeypatch):
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
 
 
 def task_payload():
@@ -91,6 +99,40 @@ def test_orchestrator_controls_agent_count(harness, count):
     roles = [role for role, _ in harness.provider.calls]
     assert roles == ["Topology"] + ["Subgraph"] * count + ["CheckpointSet"]
     assert read(version / "validation.json")["skill_agent_count"] == count
+
+
+def test_generation_reports_agents_validation_and_usage_without_prompt_content(harness):
+    output = io.StringIO()
+    harness.progress = Progress(stream=output)
+    harness.task.instruction = "private task instruction not for the terminal"
+    harness.generate()
+    text = output.getvalue()
+    assert "coordinator: started" in text
+    assert "skill agent 1/2" in text and "skill agent 2/2" in text
+    assert "checkpoint-agent: started" in text
+    assert "running final structural validation" in text
+    assert "generation complete; simulation not yet evaluated" in text
+    assert "calls 4/48" in text and "reported session tokens 8" in text
+    assert "private task instruction not for the terminal" not in text
+    assert len(harness.provider.calls) == 4
+
+
+def test_cli_progress_uses_stderr_and_preserves_json_output(harness, monkeypatch, capsys):
+    import sys
+
+    from gap_harness import cli
+
+    monkeypatch.setattr(cli, "load_environment", lambda: None)
+    monkeypatch.setattr(cli, "OpenAIResponses", lambda model, **kwargs: harness.provider)
+    monkeypatch.setattr(sys, "argv", ["gap-harness", "generate", "--live", "--task",
+        str(harness.task_path), "--session", str(harness.session)])
+    cli.main()
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["accepted"] is False
+    assert "revision attempt 1/1" in captured.err
+    assert "coordinator: started" in captured.err
+    assert "limits:" in captured.err
+    assert len(harness.provider.calls) == 4
 
 
 def test_compiler_preserves_execution_routes_and_membership():
@@ -231,7 +273,9 @@ def test_feedback_requires_fixed_checks_graph_and_seed_binding():
 def test_feedback_attributes_failures_to_subgraphs():
     graph = compiled()
     receipt = receipt_for(graph, "hash")
-    receipt["graph"]["trace"][0].update(outcome="failed", detail="slipped")
+    terminal = graph["nodes"][0]["routes"]["failed"]
+    receipt["graph"]["trace"][0].update(outcome="failed", detail="slipped", next_node=terminal)
+    receipt["graph"]["terminal"] = terminal
     receipt["graph"]["status"] = "failed"
     trial = build_trial_feedback(receipt, Task.model_validate(task_payload()), graph,
         CheckpointSet.model_validate(checks_payload()), "hash", 0)
@@ -269,6 +313,7 @@ def test_evaluate_and_revise_without_api_or_simulator(harness, monkeypatch):
 
     def run(command, **kwargs):
         assert "OPENAI_API_KEY" not in kwargs["env"]
+        assert kwargs["stdin"] == subprocess.DEVNULL
         output = Path(command[2])
         output.mkdir()
         graph_path = Path(command[1])
@@ -281,8 +326,10 @@ def test_evaluate_and_revise_without_api_or_simulator(harness, monkeypatch):
     assert result["successes"] == 2
     assert (version / "accepted.json").is_file()
     assert (version / "evaluation/seed-0-feedback.json").is_file()
-    with pytest.raises(FileExistsError):
-        harness.evaluate(version)
+    original = (version / "feedback.json").read_bytes()
+    assert harness.evaluate(version)["successes"] == 2
+    assert (version / "feedback.json").read_bytes() == original
+    assert (version / "evaluation-0002/feedback.json").is_file()
 
 
 def test_modified_graph_not_executed(harness):
@@ -294,6 +341,53 @@ def test_modified_graph_not_executed(harness):
     (version / "graph.json").write_text("{}")
     with pytest.raises(ValueError, match="changed"):
         harness.evaluate(version)
+
+
+def test_startup_failure_stops_suite_without_blame_or_revision(harness, monkeypatch):
+    payload = task_payload()
+    payload["runner"] = {"command": ["fake-worker", "{output}"]}
+    harness.task_path.write_text(json.dumps(payload))
+    harness = Harness(harness.task_path, harness.session, harness.provider)
+    version = harness.generate()
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append(command)
+        raise subprocess.TimeoutExpired(command, 1)
+
+    monkeypatch.setattr("gap_harness.engine.subprocess.run", run)
+    result = harness.evaluate(version)
+    assert len(calls) == 1
+    assert result["success_rate"] is None
+    assert not result["evaluation_complete"]
+    assert result["evaluated_trials"] == 0
+    assert result["infrastructure_failures"] == 1
+    assert result["failures_by_subgraph"] == {}
+    assert result["records"][0]["failures"] == []
+    assert read(version / "selection.json")["best_version"] is None
+    with pytest.raises(ValueError, match="reevaluation"):
+        harness.generate()
+    assert len(harness.versions()) == 1
+
+
+def test_libero_worker_gets_prepared_config_and_no_input(harness, monkeypatch):
+    payload = task_payload()
+    payload["runner"] = {"command": ["python", "-m", "gap_libero.cli"]}
+    harness.task_path.write_text(json.dumps(payload))
+    harness = Harness(harness.task_path, harness.session, harness.provider)
+    version = harness.generate()
+    monkeypatch.delenv("LIBERO_CONFIG_PATH", raising=False)
+    captured = []
+
+    def run(command, **kwargs):
+        captured.append(kwargs)
+        return SimpleNamespace(returncode=1)
+
+    monkeypatch.setattr("gap_harness.engine.subprocess.run", run)
+    harness.evaluate(version)
+    assert captured[0]["stdin"] == subprocess.DEVNULL
+    assert Path(captured[0]["env"]["LIBERO_CONFIG_PATH"]) == (
+        captured[0]["cwd"] / "cache/libero-config")
 
 
 def test_response_transport_uses_strict_schema_and_no_stored_response(monkeypatch):
@@ -308,7 +402,8 @@ def test_response_transport_uses_strict_schema_and_no_stored_response(monkeypatc
     response = provider.complete("instructions", {"task": "test"}, Topology)
     body = json.loads(captured[0].content)
     assert str(captured[0].url) == "https://api.openai.com/v1/responses"
-    assert body["model"] == "gpt-6-astra"
+    assert body["model"] == "gpt-6.1-sol"
+    assert body["reasoning"] == {"effort": "medium"}
     assert body["store"] is False
     assert body["text"]["format"]["strict"] is True
     assert Topology.model_validate_json(response["text"])

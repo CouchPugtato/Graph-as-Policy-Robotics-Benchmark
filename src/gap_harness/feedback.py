@@ -35,6 +35,10 @@ def build_trial_feedback(receipt, task: Task, graph, checkpoints: CheckpointSet,
                          graph_sha256, seed, *, process_ok=True):
     trace = receipt.get("graph", {}).get("trace", [])
     membership = graph["metadata"]["subgraph_membership"]
+    graph_bound = receipt.get("graph_sha256") == graph_sha256
+    seed_bound = type(receipt.get("seed")) is int and receipt["seed"] == seed
+    known_trace = trace_matches_graph(receipt, graph)
+    evaluated = graph_bound and seed_bound and known_trace
     criteria = {path: lookup(receipt, path) is True for path in task.required_true}
     if not isinstance(trace, list):
         trace = []
@@ -52,14 +56,11 @@ def build_trial_feedback(receipt, task: Task, graph, checkpoints: CheckpointSet,
                     "succeeded": "succeeded", "failed": "failed"}[check.expected]
         checked.append({**check.model_dump(), "observed": value,
                         "passed": type(value) is type(expected) and value == expected})
-        if not checked[-1]["passed"]:
+        if evaluated and value is not None and not checked[-1]["passed"]:
             attribution.append({"node": None, "subgraph": check.subgraph,
                 "action": None, "detail": f"postcondition {check.name} failed", "kind":
                 "checkpoint", "evidence": check.evidence, "observed": value})
     # generated checkpoints can add diagnostics but cannot replace fixed task criteria
-    graph_bound = receipt.get("graph_sha256") == graph_sha256
-    seed_bound = type(receipt.get("seed")) is int and receipt["seed"] == seed
-    known_trace = trace_matches_graph(receipt, graph)
     success = (process_ok and graph_bound and seed_bound and known_trace
                and receipt.get("ok") is True
                and receipt.get("graph", {}).get("status") == "succeeded"
@@ -76,8 +77,11 @@ def build_trial_feedback(receipt, task: Task, graph, checkpoints: CheckpointSet,
                        "before": sample.get("before", before), "after": after})
         before = after
     return {"seed": seed, "success": bool(success), "process_ok": process_ok,
+            "evaluated": evaluated,
+            "failure_kind": None if success else ("policy" if evaluated else "infrastructure"),
             "graph_bound": graph_bound, "seed_bound": seed_bound, "known_trace": known_trace,
-            "fixed_criteria": criteria, "checkpoints": checked, "failures": attribution,
+            "fixed_criteria": criteria, "checkpoints": checked,
+            "failures": attribution if evaluated else [],
             "detail": receipt.get("detail", ""), "trace": trace,
             "phase_state_changes": phases,
             "contacts": receipt.get("evaluation", {}).get("disallowed_collisions", []),
@@ -86,17 +90,23 @@ def build_trial_feedback(receipt, task: Task, graph, checkpoints: CheckpointSet,
 
 
 def aggregate_feedback(trials):
+    evaluated = sum(trial["evaluated"] for trial in trials)
     counts = Counter(failure["subgraph"] or "unattributed"
                      for trial in trials for failure in trial["failures"])
     return {"trials": len(trials), "successes": sum(trial["success"] for trial in trials),
-            "success_rate": sum(trial["success"] for trial in trials) / len(trials),
+            "evaluated_trials": evaluated, "infrastructure_failures": len(trials) - evaluated,
+            "evaluation_complete": evaluated == len(trials),
+            "success_rate": (sum(trial["success"] for trial in trials) / len(trials)
+                             if evaluated == len(trials) else None),
             "failures_by_subgraph": dict(counts), "records": trials,
-            "revision_guidance": [
+            "revision_guidance": (["repair runner infrastructure and reevaluate this graph "
+                                   "before requesting a policy revision"]
+                                  if evaluated != len(trials) else [
                 "compare state and contact changes around the first failing phase",
                 "separate perception geometry control and verification failures",
                 "repair responsible subgraphs and preserve successful behavior",
                 "do not change task criteria physics bindings or seed specific coordinates",
-                "rerun the complete configured seed suite to detect regressions"]}
+                "rerun the complete configured seed suite to detect regressions"])}
 
 
 def compact_feedback(feedback, max_characters=90000):
@@ -112,6 +122,7 @@ def compact_feedback(feedback, max_characters=90000):
             selected = phases[-1:]
         records.append({key: trial.get(key) for key in (
             "seed", "success", "process_ok", "graph_bound", "seed_bound", "known_trace",
+            "evaluated", "failure_kind",
             "fixed_criteria", "checkpoints", "failures", "detail", "contacts")})
         records[-1]["phase_state_changes"] = selected
         records[-1]["trace"] = [{key: event.get(key) for key in (
