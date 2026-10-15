@@ -1,0 +1,11 @@
+# simulation only without training models or datasets
+numpy==1.26.4
+robosuite==1.4.1
+mujoco==2.3.7
+bddl==1.0.1
+gym==0.25.2
+easydict==1.9
+cloudpickle==2.2.1
+future==1.0.0
+matplotlib==3.10.9
+h5py==3.12.1

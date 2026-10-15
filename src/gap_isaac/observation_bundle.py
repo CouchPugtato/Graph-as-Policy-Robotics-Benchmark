@@ -67,8 +67,11 @@ class ObservationBundle:
     observation: ObservationDescriptor
     rgb: bytes
     depth: bytes
+    source: str = "connector-rgbd-only"
 
     def validate(self) -> None:
+        if self.source not in ("connector-rgbd-only", "libero-rgbd-only"):
+            raise ValueError("unsupported observation source")
         rgb_size, depth_size = _sizes(self.observation)
         _validate_asset(self.rgb, rgb_size, self.observation.rgb_sha256, "RGB")
         _validate_asset(self.depth, depth_size, self.observation.depth_sha256, "depth")
@@ -156,7 +159,7 @@ class ObservationBundle:
         (directory / "rgb.png").write_bytes(preview)
         manifest = {
             "schema_version": 1,
-            "source": "connector-rgbd-only",
+            "source": self.source,
             "camera_axes": "ros-optical-x-right-y-down-z-forward",
             "depth_semantics": "distance-to-image-plane",
             "byte_order": "little-endian",
@@ -175,7 +178,6 @@ class ObservationBundle:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         expected = {
             "schema_version": 1,
-            "source": "connector-rgbd-only",
             "camera_axes": "ros-optical-x-right-y-down-z-forward",
             "depth_semantics": "distance-to-image-plane",
             "byte_order": "little-endian",
@@ -191,6 +193,7 @@ class ObservationBundle:
             observation,
             (directory / "rgb.bin").read_bytes(),
             (directory / "depth.bin").read_bytes(),
+            source=manifest.get("source", ""),
         )
         bundle.validate()
         preview_path = directory / "rgb.png"

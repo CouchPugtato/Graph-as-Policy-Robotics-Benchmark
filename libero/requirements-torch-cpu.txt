@@ -1,0 +1,7 @@
+# torch dependencies come from pypi rather than the wheel only cpu index
+filelock
+typing-extensions>=4.8.0
+networkx
+Jinja2
+fsspec
+sympy==1.13.1
