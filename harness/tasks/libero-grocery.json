@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "task_id": "libero-grocery",
+  "instruction": "Pick the designated blue cylinder alphabet_soup and place it in the green basket. Use verified grasping and lifting before transport and verify release and stable containment. Select your own subgraph decomposition from deployed skills. Geometry is supplied by trusted scene bindings in this task and no perception action is deployed here.",
+  "skills": [
+    {
+      "name": "grasping-direct-ik",
+      "description": "Open align descend close and lift with verified physical grasping",
+      "instructions": "Use the upstream skill guidance but only the deployed aliases below. The binding supplies scene dependent poses and checks holds. Do not invent perception or cuRobo tools. Lift may be included here or in a separate subgraph using this skill.",
+      "reference_files": ["../../cache/upstream/open-robot-skills/skills/grasping-direct-ik/SKILL.md"],
+      "actions": [
+        {"name": "open_gripper", "description": "Open fingers before approaching"},
+        {"name": "align_over_target", "description": "Move above the target with grasp orientation", "requires": ["open_gripper"]},
+        {"name": "descend_to_grasp", "description": "Descend to the grasp pose", "requires": ["align_over_target"]},
+        {"name": "close_gripper", "description": "Close with bounded force and verify two finger contact", "requires": ["descend_to_grasp"]},
+        {"name": "lift_grasped", "description": "Lift the held object and verify elevation and grasp", "requires": ["close_gripper"]}
+      ]
+    },
+    {
+      "name": "transporting-objects",
+      "description": "Transport a verified held object into the basket and release",
+      "instructions": "The deployed actions resolve poses from the scene. Require lift before transport then position release retract and settle. No direct coordinate editing or physics changes are available.",
+      "reference_files": ["../../cache/upstream/open-robot-skills/skills/transporting-objects/SKILL.md"],
+      "actions": [
+        {"name": "move_over_basket", "description": "Carry held target over the basket", "requires": ["lift_grasped"]},
+        {"name": "position_for_release", "description": "Lower held target inside the basket opening", "requires": ["move_over_basket"]},
+        {"name": "release_object", "description": "Open and verify release", "requires": ["position_for_release"]},
+        {"name": "retract_from_basket", "description": "Retract clear of the basket after release", "requires": ["release_object"]},
+        {"name": "settle_release", "description": "Wait for settling and verify task containment", "requires": ["retract_from_basket"]}
+      ]
+    }
+  ],
+  "seeds": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+  "checkpoint_evidence": [
+    "evaluation.checkpoints.target_grasped",
+    "evaluation.checkpoints.target_lifted",
+    "evaluation.checkpoints.target_released",
+    "evaluation.checkpoints.target_contained",
+    "evaluation.task_success"
+  ],
+  "required_true": [
+    "evaluation.checkpoints.target_grasped",
+    "evaluation.checkpoints.target_lifted",
+    "evaluation.checkpoints.target_released",
+    "evaluation.checkpoints.target_contained",
+    "evaluation.task_success"
+  ],
+  "required_actions": ["open_gripper", "align_over_target", "descend_to_grasp", "close_gripper", "lift_grasped", "move_over_basket", "position_for_release", "release_object", "retract_from_basket", "settle_release"],
+  "runner": {
+    "cwd": "../..",
+    "command": ["{root}/.venv-libero/Scripts/python.exe", "-m", "gap_libero.cli", "compare-grocery", "--seed", "{seed}", "--graph", "{graph}", "--output", "{output}", "--enable-motion"],
+    "timeout_s": 120,
+    "receipt": "receipt.json"
+  },
+  "limitations": [
+    "Custom LIBERO grocery scene not an official LIBERO benchmark score",
+    "Uses trusted oracle scene geometry rather than executing perception tools",
+    "Agents change graph structure and routes not underlying control bindings",
+    "Task contracts use a local JSON format not the upstream workflow v3 wire format",
+    "Fixed ten seed training suite is not an unseen generalization evaluation"
+  ]
+}

@@ -37,6 +37,20 @@ GPU index 0. Run files under `isaac/` with Isaac Sim's `python.bat`, not the
 system interpreter; start with `gap-isaac doctor` to see which host settings are
 available.
 
+## API graph harness
+
+The optional harness follows the coordinator, per subgraph skill agent and independent
+checkpoint agent hierarchy. It keeps every graph revision and returns simulator state,
+contact and checkpoint evidence for bounded refinement. Start with the offline check:
+
+```powershell
+.\.venv\Scripts\python.exe -m gap_harness.cli check
+```
+
+See [the harness guide](harness/README.md) for API opt in, version storage, rehearsal
+commands, feedback design and other task manifests. The supplied executable adapter
+uses the custom LIBERO grocery task; other tasks require deployed bindings and evaluation.
+
 ## References
 
 1. K. Chen, S. Xie, L. Fu, J. Yu, W. Pacini, S. Bajamahal, H. Kim, J. Drake,

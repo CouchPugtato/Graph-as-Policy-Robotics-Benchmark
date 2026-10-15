@@ -87,6 +87,7 @@ class LiberoBackend:
         self.env, self.camera = env, camera
         self.motion_enabled, self.max_steps = motion_enabled, max_steps
         self.steps, self.closed, self.done = 0, False, False
+        self.disallowed_collisions = []
         self.observation: dict[str, Any] | None = None
         self.forbidden_pairs = set()
         for pair in forbidden_geom_pairs:
@@ -102,6 +103,7 @@ class LiberoBackend:
         if init_state is not None:
             self.observation = self.env.set_init_state(init_state)
         self.steps, self.done = 0, False
+        self.disallowed_collisions = []
         self.check_workspace(self.eef_position())
         self.check_contacts()
         return self.observation
@@ -117,12 +119,22 @@ class LiberoBackend:
                 (position < self.workspace[0]).any() or (position > self.workspace[1]).any()):
             raise RuntimeError("end effector is outside the configured workspace")
 
+    def eef_orientation(self) -> np.ndarray:
+        site = self.env.robots[0].gripper.important_sites["grip_site"]
+        transform = np.eye(4)
+        transform[:3, :3] = self.env.sim.data.get_site_xmat(site)
+        q = matrix_pose(transform).orientation
+        return np.array([q.x, q.y, q.z, q.w])
+
     def check_contacts(self) -> None:
         if self.forbidden_pairs:
             data = self.env.sim.data
             for contact in data.contact[:data.ncon]:
                 if frozenset((contact.geom1, contact.geom2)) in self.forbidden_pairs:
-                    raise RuntimeError("forbidden geometry contact")
+                    name = getattr(self.env.sim.model, "geom_id2name", str)
+                    pair = [name(contact.geom1), name(contact.geom2)]
+                    self.disallowed_collisions.append({"geometries": pair, "step": self.steps})
+                    raise RuntimeError(f"forbidden geometry contact: {pair[0]} with {pair[1]}")
 
     def step(self, action: Any) -> dict[str, Any]:
         if not self.motion_enabled:
@@ -187,7 +199,7 @@ class LiberoBackend:
             self.env.sim, self.camera, height, width)
         extrinsic = camera_utils.get_camera_extrinsic_matrix(self.env.sim, self.camera)
         position = self.eef_position()
-        quaternion = vector(observation["robot0_eef_quat"], 4, "end effector quaternion")
+        quaternion = self.eef_orientation()
         if not np.isclose(np.linalg.norm(quaternion), 1, atol=1e-4):
             raise ValueError("end effector quaternion is not normalized")
         joints = np.asarray(observation["robot0_joint_pos"], dtype=float)

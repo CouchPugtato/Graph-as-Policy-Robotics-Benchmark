@@ -15,21 +15,32 @@ class ActionSpec(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     kind: Literal["move", "open", "close", "hold", "verify"]
     position_m: tuple[float, float, float] | None = None
-    max_steps: int = Field(default=60, ge=1, le=200, strict=True)
+    orientation_xyzw: tuple[float, float, float, float] | None = None
+    orientation_tolerance_rad: float = Field(default=0.04, gt=0, le=0.1)
+    preload_steps: int = Field(default=0, ge=0, le=20, strict=True)
+    max_steps: int = Field(default=60, ge=1, le=400, strict=True)
     tolerance_m: float = Field(default=0.005, gt=0, le=0.01)
+    position_gain: float = Field(default=1.0, gt=0, le=5)
+    maximum_translation_command: float = Field(default=0.15, gt=0, le=0.15)
     require_grasp: bool = False
 
     @model_validator(mode="after")
     def move_requires_position(self) -> ActionSpec:
         if (self.kind == "move") != (self.position_m is not None):
             raise ValueError("only move actions require a position")
+        if self.orientation_xyzw is not None and (
+                self.kind != "move" or not np.isclose(np.linalg.norm(self.orientation_xyzw), 1)):
+            raise ValueError("move orientation requires a unit quaternion")
+        if self.preload_steps and self.kind != "close":
+            raise ValueError("only closing supports preload steps")
         return self
 
 
 class RunPlan(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     schema_version: Literal[1] = 1
-    suite: Literal["libero_spatial", "libero_object", "libero_goal", "libero_10", "libero_90"]
+    suite: Literal["libero_spatial", "libero_object", "libero_goal", "libero_10", "libero_90",
+                   "grocery_ground"]
     task_id: int = Field(ge=0, strict=True)
     init_state_id: int = Field(default=0, ge=0, strict=True)
     seed: int = Field(default=0, ge=0, strict=True)
@@ -74,6 +85,25 @@ class LiberoGraphActions:
         if not np.allclose(output_low, -output_high) or not (output_high > 0).all():
             raise ValueError("OSC controller outputs must be symmetric and positive")
         self.position_scale = output_high[:3]
+        self.rotation_scale = output_high[3:]
+        self.hold_position = backend.eef_position().copy()
+        self.hold_orientation = None
+
+    def rotation_error(self, target: Any) -> np.ndarray:
+        if target is None:
+            return np.zeros(3)
+        goal = vector(target, 4, "target quaternion")
+        current = self.backend.eef_orientation()
+        if not np.isclose(np.linalg.norm(current), 1, atol=1e-4):
+            raise ValueError("current quaternion is not normalized")
+        xyz = (-goal[3] * current[:3] + current[3] * goal[:3]
+               - np.cross(goal[:3], current[:3]))
+        scalar = goal[3] * current[3] + np.dot(goal[:3], current[:3])
+        if scalar < 0:
+            xyz, scalar = -xyz, -scalar
+        norm = np.linalg.norm(xyz)
+        return (np.zeros(3) if norm < 1e-9 else
+                xyz / norm * (2 * np.arctan2(norm, scalar)))
 
     def check_hold(self) -> None:
         if self.hold_reference is None:
@@ -87,11 +117,19 @@ class LiberoGraphActions:
         if not np.isfinite(slip) or slip > self.plan.maximum_slip_m:
             raise RuntimeError(f"target slipped relative to the gripper: {slip:.6f} m")
 
-    def command(self, translation: Any = (0, 0, 0), *, require_grasp: bool = False) -> None:
+    def command(self, translation: Any = None, *, require_grasp: bool = False,
+                rotation: Any = None) -> None:
         if require_grasp:
             self.check_hold()
-        # zero rotation retains the current wrist orientation rather than using lula
-        self.backend.step([*translation, 0, 0, 0, self.gripper])
+        if translation is None:
+            # hold the commanded pose instead of resetting the goal to each drifting sample
+            error = self.hold_position - self.backend.eef_position()
+            translation = np.clip(4 * error / self.position_scale, -0.15, 0.15)
+        if rotation is None:
+            rotation = np.clip(self.rotation_error(self.hold_orientation) / self.rotation_scale,
+                               -0.1, 0.1)
+        # use the simulator controller rather than replaying isaac joint trajectories
+        self.backend.step([*translation, *rotation, self.gripper])
         if require_grasp:
             self.check_hold()
 
@@ -108,16 +146,25 @@ class LiberoGraphActions:
             self.backend.check_workspace(spec.position_m)
             for _ in range(spec.max_steps):
                 error = np.asarray(spec.position_m) - self.backend.eef_position()
-                if np.linalg.norm(error) <= spec.tolerance_m:
+                rotation_error = self.rotation_error(spec.orientation_xyzw)
+                if (np.linalg.norm(error) <= spec.tolerance_m
+                        and np.linalg.norm(rotation_error) <= spec.orientation_tolerance_rad):
+                    self.hold_position = np.asarray(spec.position_m, dtype=float)
+                    self.hold_orientation = spec.orientation_xyzw
                     if spec.require_grasp:
                         self.check_hold()
                     return NodeResult(detail="Cartesian position reached within tolerance")
-                translation = np.clip(error / self.position_scale, -0.15, 0.15)
-                self.command(translation, require_grasp=spec.require_grasp)
+                limit = spec.maximum_translation_command
+                translation = np.clip(spec.position_gain * error / self.position_scale,
+                                      -limit, limit)
+                rotation = np.clip(rotation_error / self.rotation_scale, -0.1, 0.1)
+                self.command(translation, require_grasp=spec.require_grasp, rotation=rotation)
                 if self.backend.done:
                     return NodeResult("succeeded" if self.backend.task_success() else "failed",
                                       "LIBERO episode terminal during motion")
-            return NodeResult("failed", "Cartesian move exhausted its step budget")
+            return NodeResult("failed", f"Cartesian move exhausted its step budget; "
+                f"position_error_m={np.linalg.norm(error):.6f}; "
+                f"orientation_error_rad={np.linalg.norm(rotation_error):.6f}")
         if spec.kind in ("open", "close"):
             self.gripper = -1.0 if spec.kind == "open" else 1.0
             stable_contacts = 0
@@ -133,6 +180,8 @@ class LiberoGraphActions:
                         self.hold_reference = self.backend.target_in_gripper(
                             self.plan.target_object)
                         self.missing_contact_frames = 0
+                        for _ in range(spec.preload_steps):
+                            self.command(require_grasp=True)
                         return NodeResult(detail="two finger target contact verified")
             if spec.kind == "close":
                 return NodeResult("failed", "grasp contact not verified before timeout")

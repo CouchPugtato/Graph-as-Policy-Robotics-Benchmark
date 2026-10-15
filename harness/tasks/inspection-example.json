@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "task_id": "inspection-example",
+  "instruction": "Observe a component classify its condition and route it to accepted or rejected handling with a verified inspection result.",
+  "skills": [
+    {
+      "name": "inspect-component",
+      "description": "Observe and classify a component",
+      "instructions": "Capture first then classify. This example requires real action bindings before execution.",
+      "actions": [
+        {"name": "capture_component", "description": "Capture component observation"},
+        {"name": "classify_component", "description": "Classify and report the inspection condition", "outcomes": ["succeeded", "failed", "rejected"]}
+      ]
+    },
+    {
+      "name": "record-inspection",
+      "description": "Record an accepted or rejected inspection",
+      "instructions": "Select the recording action from the classification exit. Reject is a valid completed inspection not a technical failure.",
+      "actions": [
+        {"name": "record_accept", "description": "Record accepted component"},
+        {"name": "record_reject", "description": "Record rejected component"}
+      ]
+    }
+  ],
+  "seeds": [0, 1],
+  "checkpoint_evidence": ["evaluation.inspection_recorded", "evaluation.image_available", "evaluation.classification_valid"],
+  "required_true": ["evaluation.inspection_recorded"],
+  "limitations": ["Schema example only no inspection simulator or action bindings are provided"]
+}

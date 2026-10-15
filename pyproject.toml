@@ -31,6 +31,7 @@ dev = [
 [project.scripts]
 gap-isaac = "gap_isaac.cli:app"
 gap-libero = "gap_libero.cli:main"
+gap-harness = "gap_harness.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -55,6 +55,11 @@ def check() -> dict:
 
 
 def execute(args: argparse.Namespace) -> dict:
+    if args.mode == "compare-grocery":
+        from gap_libero.grocery_comparison import DEFAULT_GRAPH, compare_grocery
+
+        return compare_grocery(args.output, args.graph or DEFAULT_GRAPH, args.seed,
+                               capture_only=not args.enable_motion)
     from gap_libero.backend import create_backend
 
     if args.mode == "run":
@@ -108,7 +113,11 @@ def main() -> None:
     run.add_argument("--graph", type=Path, required=True)
     run.add_argument("--plan", type=Path, required=True)
     run.add_argument("--enable-motion", action="store_true")
-    for command in (capture, run):
+    grocery = commands.add_parser("compare-grocery")
+    grocery.add_argument("--seed", type=int, choices=range(10), default=0)
+    grocery.add_argument("--graph", type=Path)
+    grocery.add_argument("--enable-motion", action="store_true")
+    for command in (capture, run, grocery):
         command.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     if args.mode == "check":

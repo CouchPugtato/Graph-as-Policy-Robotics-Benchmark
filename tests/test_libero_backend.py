@@ -301,6 +301,85 @@ def test_powershell_defaults_capture_and_keeps_motion_opt_in():
     assert "$Install" not in installer
 
 
+def test_grocery_bindings_cover_original_graph_actions_without_isaac_waypoints():
+    from gap_libero.grocery_comparison import build_action_plan
+
+    backend, env = make_backend(motion_enabled=True)
+    backend.workspace = np.array([[-0.35, -0.85, 0.02], [1, 0.85, 1.1]])
+    env.env.sim = env.sim
+    env.sim.data.get_body_xmat = lambda name: np.eye(3)
+    env.env.objects_dict["basket"] = SimpleNamespace(root_body="basket_body")
+    env.sim.data.get_body_xpos = lambda name: np.array(
+        [0.6, 0.15, 0.055] if name == "target_body" else [0.4, -0.25, 0])
+    env.env.objects_dict["alphabet_soup"] = env.target
+    plan = build_action_plan(backend, 3)
+    assert list(plan.actions) == ["open_gripper", "align_over_target", "descend_to_grasp",
+        "close_gripper", "lift_grasped", "move_over_basket", "position_for_release",
+        "release_object", "retract_from_basket", "settle_release"]
+    assert plan.actions["descend_to_grasp"].position_m == pytest.approx([0.6, 0.15, 0.09])
+    assert plan.actions["move_over_basket"].position_m[:2] == pytest.approx([0.4, -0.25])
+    assert plan.actions["lift_grasped"].require_grasp
+    assert plan.actions["settle_release"].kind == "verify"
+
+
+def test_orientation_control_uses_grip_site_not_wrist_body_frame():
+    backend, _ = make_backend()
+    backend.observation["robot0_eef_quat"] = [1, 0, 0, 0]
+    actions = LiberoGraphActions(backend, make_plan())
+    assert backend.eef_orientation() == pytest.approx([0, 0, 0, 1])
+    goal = np.array([0, 0, np.sin(np.pi / 4), np.cos(np.pi / 4)])
+    assert actions.rotation_error(goal) == pytest.approx([0, 0, np.pi / 2])
+    assert actions.rotation_error(-goal) == pytest.approx([0, 0, np.pi / 2])
+
+
+def test_invalid_move_orientation_and_preload_are_rejected():
+    with pytest.raises(ValueError, match="unit quaternion"):
+        make_plan(actions={"attempt": {"kind": "move", "position_m": [0, 0, 1],
+                                       "orientation_xyzw": [0, 0, 0, 0]}})
+    with pytest.raises(ValueError, match="preload"):
+        make_plan(actions={"attempt": {"kind": "hold", "preload_steps": 3}})
+
+
+@pytest.mark.parametrize("degrees", [0, 30, 89, 90, 120, -170, 180, 350])
+def test_parallel_jaw_orientation_preserves_alignment_without_long_wrist_rotation(degrees):
+    from gap_libero.grocery_comparison import closest_parallel_jaw_yaw
+
+    yaw = np.deg2rad(degrees)
+    reference = np.deg2rad(20)
+    result = closest_parallel_jaw_yaw(yaw, reference)
+    assert abs(result - reference) <= np.pi / 2 + 1e-12
+    assert np.cos(2 * result) == pytest.approx(np.cos(2 * yaw))
+    assert np.sin(2 * result) == pytest.approx(np.sin(2 * yaw))
+
+
+def test_parallel_jaw_orientation_rejects_nonfinite_angles():
+    from gap_libero.grocery_comparison import closest_parallel_jaw_yaw
+
+    with pytest.raises(ValueError, match="finite"):
+        closest_parallel_jaw_yaw(float("nan"))
+
+
+def test_parallel_jaw_choice_accounts_for_basket_side_of_robot():
+    from gap_libero.grocery_comparison import closest_parallel_jaw_yaw
+
+    result = closest_parallel_jaw_yaw(np.deg2rad(99), np.deg2rad(31))
+    assert np.rad2deg(result) == pytest.approx(99)
+    result = closest_parallel_jaw_yaw(np.deg2rad(-175), np.deg2rad(-37))
+    assert np.rad2deg(result) == pytest.approx(5)
+
+
+def test_gripper_commands_hold_the_prior_pose_instead_of_following_drift():
+    backend, env = make_backend(motion_enabled=True)
+    actions = LiberoGraphActions(backend, make_plan())
+    original_goal = actions.hold_position.copy()
+    env.position[0] += 0.01
+    backend.observation = env.obs()
+    actions.command()
+    assert env.commands[-1][0] < 0
+    assert np.linalg.norm(env.position - original_goal) < 0.01
+    assert actions.hold_position == pytest.approx(original_goal)
+
+
 def test_windows_runtime_preparation_is_isolated_and_idempotent(tmp_path, monkeypatch):
     import os
 
