@@ -52,10 +52,14 @@ def latest_session():
 def session_history(session):
     session = Path(session).resolve()
     manifest = read(session / "session.json")
-    iterations, previous = [], None
+    iterations, skipped, previous = [], [], None
     for version in sorted(session.glob("v[0-9][0-9][0-9][0-9]")):
         feedback = load_feedback(version)
         if feedback is None or not evaluation_complete(feedback):
+            skipped.append({
+                "iteration":int(version.name[1:]),
+                "reason":"not evaluated" if feedback is None else "incomplete evaluation",
+            })
             continue
         graph_path = version / "graph.json"
         digest = sha256(graph_path)
@@ -101,7 +105,7 @@ def session_history(session):
         previous = nodes
     if not iterations:
         raise ValueError("session has no evaluated graph versions")
-    return {"iterations": iterations}, manifest
+    return {"iterations": iterations, "skipped_iterations": skipped}, manifest
 
 
 def frame_index(recording):
@@ -169,7 +173,17 @@ def record_final(session, record, manifest, destination):
     return receipt_path, True
 
 
-def graph_state(receipt, step, final=False):
+def event_failed(event, policy=None):
+    if event["outcome"] == "failed":
+        return True
+    if event["outcome"] in {"succeeded", "true", "found"}:
+        return False
+    if policy is not None:
+        return policy["terminals"].get(event.get("next_node")) == "failed"
+    return True
+
+
+def graph_state(receipt, step, final=False, policy=None):
     trace, trajectory = receipt["graph"]["trace"], receipt.get("trajectory", [])
     if len(trace) != len(trajectory):
         raise ValueError("recorded run requires one timed sample per graph trace event")
@@ -182,14 +196,14 @@ def graph_state(receipt, step, final=False):
             raise ValueError("recorded action timeline does not match the graph trace")
         if step >= end:
             taken[event["node_id"]] = event["outcome"]
-            if event["outcome"] in {"succeeded", "true", "found"}:
+            if not event_failed(event, policy):
                 completed.append(event["node_id"])
             else:
                 failed = event["node_id"]
         elif start <= step < end:
             active = event["node_id"]
         previous = end
-    if final and trace and trace[-1]["outcome"] not in {"succeeded", "true", "found"}:
+    if final and trace and event_failed(trace[-1],policy):
         failed = trace[-1]["node_id"]
     return {"completed_nodes": completed, "active_node": active, "failed_node": failed,
             "taken_routes": taken}
@@ -236,7 +250,7 @@ def render_movie(data, receipt_path, output, *, fps=60, size=(1280, 720), recap_
     if steps[0] != 0 or final_step != receipt.get("steps"):
         raise ValueError("recording must cover the complete receipt step range")
     duration = (final_step - steps[0] + 1) / frames["fps"]
-    graph_state(receipt, steps[0])
+    graph_state(receipt, steps[0],policy=last["policy"])
     command = [app.ffmpeg(), "-n", "-loglevel", "error", "-f", "rawvideo",
                "-pix_fmt", "rgb24", "-s", f"{size[0]}x{size[1]}", "-r", str(fps),
                "-i", "pipe:0", "-an", "-c:v", "libx264", "-threads", "2",
@@ -279,7 +293,7 @@ def render_movie(data, receipt_path, output, *, fps=60, size=(1280, 720), recap_
                 display = dict(data, iterations=list(records))
                 display["iterations"][-1] = dict(last, changed=[],
                     completed_nodes=[item["node_id"] for item in prefix
-                                     if item["outcome"] in {"succeeded", "true", "found"}],
+                                     if not event_failed(item,last["policy"])],
                     active_node=event["node_id"], failed_node=None,
                     node_outcome=event["outcome"],
                     taken_routes={item["node_id"]: item["outcome"] for item in prefix})
@@ -294,7 +308,8 @@ def render_movie(data, receipt_path, output, *, fps=60, size=(1280, 720), recap_
                     process.stdin.write(evidence.tobytes())
                 pause_seconds += count / fps
                 presented.add(event_index)
-            state = graph_state(receipt, frame["step"], final=frame["step"] == final_step)
+            state = graph_state(receipt, frame["step"], final=frame["step"] == final_step,
+                                policy=last["policy"])
             key = (state["active_node"], tuple(state["completed_nodes"]), state["failed_node"],
                    tuple(state["taken_routes"].items()))
             if key not in bases:
@@ -349,6 +364,10 @@ def export_session(session=None, output=None, *, size=(1280, 720), graph_detail=
         raise ValueError("playback speed must be between one and four")
     session = Path(session).resolve() if session else latest_session()
     data, manifest = session_history(session)
+    print("Presenting evaluated graph revisions: " + ", ".join(
+        f"v{record['iteration']:04d}" for record in data["iterations"]),flush=True)
+    for skipped in data["skipped_iterations"]:
+        print(f"Skipping v{skipped['iteration']:04d}: {skipped['reason']}",flush=True)
     for record in data["iterations"]:
         record["graph_detail"] = graph_detail
     identifier = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid4().hex[:8]

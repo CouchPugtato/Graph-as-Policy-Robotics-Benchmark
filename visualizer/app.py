@@ -343,8 +343,7 @@ def graph_panel(ax, record):
             targets.setdefault(target, []).append(outcome)
         for target, outcomes in targets.items():
             tx,ty = positions[target]
-            negative = all(outcome in {"failed", "false", "not_found", "rejected"}
-                           for outcome in outcomes)
+            negative = (target in failures or all(outcome == "failed" for outcome in outcomes))
             color = RED if negative else GREEN
             taken = record.get("taken_routes", {}).get(node["id"]) in outcomes
             linewidth = 2 if taken else .7

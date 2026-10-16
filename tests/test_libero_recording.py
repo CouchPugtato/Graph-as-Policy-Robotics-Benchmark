@@ -42,11 +42,12 @@ def recording_fixture(directory, graph):
         pixels[..., 0] = step * 50
         recorder.record({"agentview_image": pixels}, step)
     recorder.close()
+    first_node = json.loads(graph.read_text())["nodes"][0]
     receipt = {"ok": True, "seed": 0, "steps": 3,
         "graph_sha256": libero_export.sha256(graph),
-        "graph": {"trace": [{"node_id": "grasp__open", "action": "open",
+        "graph": {"trace": [{"node_id": first_node["id"], "action": first_node["action"],
                               "outcome": "succeeded"}]},
-        "trajectory": [{"action": "open", "start_step": 0, "step": 3}]}
+        "trajectory": [{"action": first_node["action"], "start_step": 0, "step": 3}]}
     (directory / "receipt.json").write_text(json.dumps(receipt))
     return directory / "receipt.json"
 
@@ -216,3 +217,67 @@ def test_automatic_session_export_uses_real_receipts_without_simulator(tmp_path,
     assert sorted(path.name for path in output.parent.iterdir()) == [
         "policy-graph.png", "visualizer_final_graph.mp4"]
     assert not list(session.glob("visualizations/*/presentation.json"))
+
+
+def test_movie_cycles_distinct_revision_graphs_and_populates_rates(tmp_path,monkeypatch):
+    session = session_fixture(tmp_path,2)
+    first_feedback = session / "v0001/feedback.json"
+    feedback = json.loads(first_feedback.read_text())
+    feedback.update(successes=0,records=[{"seed":0,"success":False}])
+    first_feedback.write_text(json.dumps(feedback))
+    graph_path = session / "v0002/graph.json"
+    graph = json.loads(graph_path.read_text())
+    graph["graph_id"] = "second-revision"
+    graph["nodes"][0]["action"] = "close"
+    graph_path.write_text(json.dumps(graph))
+    for name in ("validation.json","feedback.json"):
+        path = graph_path.parent / name
+        value = json.loads(path.read_text())
+        value["graph_sha256"] = libero_export.sha256(graph_path)
+        path.write_text(json.dumps(value))
+    data,_ = libero_export.session_history(session)
+    assert data["iterations"][1]["changed"] == ["grasp__open"]
+    assert data["iterations"][0]["policy"]["nodes"][0]["action"] == "open"
+    assert data["iterations"][1]["policy"]["nodes"][0]["action"] == "close"
+    before = [path.read_bytes() for path in (session / "v0001/graph.json",graph_path)]
+    receipt = recording_fixture(tmp_path / "replay",graph_path)
+    rendered = []
+    render = libero_export.app.render
+    def capture(history,index,**kwargs):
+        record = history["iterations"][index]
+        rates = [(item["successes"],item["trials"])
+                 for item in history["iterations"][:index+1]]
+        rendered.append((record["iteration"],record["policy"]["nodes"][0]["action"],rates))
+        return render(history,index,**kwargs)
+    monkeypatch.setattr(libero_export.app,"render",capture)
+    output = tmp_path / "revisions.mp4"
+    result = libero_export.render_movie(data,receipt,output,fps=4,size=(640,360),recap_s=.1)
+    assert rendered[:2] == [(1,"open",[(0,1)]),(2,"close",[(0,1),(1,1)])]
+    assert all(item[0:2] == (2,"close") for item in rendered[2:])
+    assert result["rates"] == [{"iteration":1,"successes":0,"trials":1},
+                                {"iteration":2,"successes":1,"trials":1}]
+    assert output.stat().st_size > 1000
+    assert before == [path.read_bytes() for path in (session / "v0001/graph.json",graph_path)]
+
+
+def test_unmeasured_attempts_are_disclosed_without_invented_rates(tmp_path):
+    session = session_fixture(tmp_path,3)
+    (session / "v0002/feedback.json").unlink()
+    data,_ = libero_export.session_history(session)
+    assert [record["iteration"] for record in data["iterations"]] == [1,3]
+    assert data["skipped_iterations"] == [{"iteration":2,"reason":"not evaluated"}]
+
+
+def test_normal_false_routing_does_not_mark_successful_loop_exit_failed():
+    policy = {"terminals":{"done":"succeeded","abort":"failed"}}
+    event = {"node_id":"next_item","action":"select_next_item","outcome":"false",
+             "next_node":"check_all_packed"}
+    receipt = {"graph":{"trace":[event]},
+               "trajectory":[{"action":"select_next_item","start_step":0,"step":0}]}
+    state = libero_export.graph_state(receipt,0,final=True,policy=policy)
+    assert state["failed_node"] is None
+    assert state["completed_nodes"] == ["next_item"]
+    assert state["taken_routes"] == {"next_item":"false"}
+    event["next_node"] = "abort"
+    failed = libero_export.graph_state(receipt,0,final=True,policy=policy)
+    assert failed["failed_node"] == "next_item"

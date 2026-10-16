@@ -159,6 +159,30 @@ manual annotations, not changes detected by the visualizer.
 
 This tool does not record or rerun Isaac itself. It composes existing artifacts.
 
+## Harness revision replay
+
+For a real harness session, run:
+
+```powershell
+.\.venv\Scripts\python.exe .\visualizer\app.py libero --session "actual session path"
+```
+
+Each generation attempt has its own version directory. Valid candidates keep
+their own `graph.json`; rejected candidates retain their partial outputs and
+validation errors rather than inventing an executable graph.
+
+The LIBERO video reads each fully evaluated version's own graph snapshot in
+version order. Its opening recap switches graphs and progressively adds that
+version's measured success rate. Changed nodes are compared with the preceding
+evaluated graph, not with the final graph. It then plays the final evaluated
+graph's simulation with timed node and decision routing highlights. A normal
+false branch such as item-loop exhaustion is not marked as a failed node.
+
+Unevaluated, rejected or incomplete attempts are disclosed as skipped and are
+not assigned fabricated rates. Their artifacts remain on disk. Graph and task
+hash checks still prevent mismatched evaluation results from being presented.
+The only presentation outputs remain the video and final graph PNG.
+
 ## Tests
 
 The default graph view shows every tool and decision node within its actual
