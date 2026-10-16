@@ -21,7 +21,8 @@ build/
 /graphs/
 /results/
 /revisions/
-/scripts/windows/
+/scripts/windows/*
+!/scripts/windows/run-until-success.ps1
 /docs/
 
 /cache/

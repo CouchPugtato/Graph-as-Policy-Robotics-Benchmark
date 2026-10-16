@@ -19,6 +19,7 @@ from gap_harness.config import (
 )
 from gap_harness.engine import Harness
 from gap_harness.evaluations import evaluation_complete, load_feedback
+from gap_harness.iterations import iterate
 from gap_harness.provider import OpenAIResponses
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -56,7 +57,13 @@ def main():
     )
     parser.add_argument("--live", action="store_true", help="allow hosted model usage")
     parser.add_argument("--execute", action="store_true", help="allow configured simulator motion")
-    parser.add_argument("--rounds", type=int, choices=range(1, 6), default=3)
+    parser.add_argument("--rounds", type=int, choices=range(1, 11), default=3)
+    parser.add_argument(
+        "--max-attempts",
+        type=int,
+        choices=range(1, 11),
+        help="cap total saved generation attempts in an iteration session",
+    )
     parser.add_argument("--max-subgraphs", type=int, choices=range(1, 17), metavar="N", default=8)
     parser.add_argument("--max-calls", type=int, choices=range(1, 129), metavar="N", default=48)
     args = parser.parse_args()
@@ -165,36 +172,21 @@ def main():
                 f"{args.max_subgraphs} skill agents per revision; "
                 f"{args.max_calls} generation calls per session; one request at a time"
             )
-            for round_index in range(1, rounds + 1):
-                harness.progress.event(f"revision attempt {round_index}/{rounds}")
-                try:
-                    version = harness.generate()
-                except ValueError:
-                    if args.mode != "iterate":
-                        raise
-                    harness.progress.event("candidate rejected; see saved validation and responses")
-                    continue
-                if args.mode == "iterate":
-                    feedback = harness.evaluate(version)
-                    if not feedback["evaluation_complete"]:
-                        raise ValueError(
-                            "runner infrastructure failed; fix it and reevaluate "
-                            "the same graph before continuing"
-                        )
-                    if feedback["successes"] == feedback["trials"]:
-                        harness.progress.event("all configured variations passed; stopping early")
-                        break
-            result = {
-                "session": str(session),
-                "version": str(version) if version else None,
-                "accepted": bool(
-                    version
-                    and load_feedback(version)
-                    and evaluation_complete(load_feedback(version))
-                    and load_feedback(version)["successes"] == load_feedback(version)["trials"]
-                ),
-                "note": "generated is not the same as validated in simulation",
-            }
+            if args.mode == "iterate":
+                result = iterate(harness, rounds, args.max_attempts)
+            else:
+                harness.progress.event("revision attempt 1/1")
+                version = harness.generate()
+                result = {
+                    "session": str(session),
+                    "version": str(version),
+                    "accepted": bool(
+                        load_feedback(version)
+                        and evaluation_complete(load_feedback(version))
+                        and load_feedback(version)["successes"] == load_feedback(version)["trials"]
+                    ),
+                    "note": "generated is not the same as validated in simulation",
+                }
         print(json.dumps(result, indent=2))
     except Exception as error:
         parser.exit(1, f"Harness stopped {type(error).__name__}: {failure_summary(error)}\n")

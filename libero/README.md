@@ -306,6 +306,28 @@ vision tools stay inside those subgraphs.
 For generation alone, use `generate --scenario packing --live`. For a metadata
 and catalog check without inference or simulation, use `check --scenario packing`.
 
+To repeat generation and ten seed evaluation until success or ten total attempts:
+
+```powershell
+.\scripts\windows\run-until-success.ps1 packing
+```
+
+The first argument also accepts `fulfillment`, `popcorn` or the original `grocery`.
+Use `-MaxTries 3` for a lower cap. Use `-Session` with the printed session path
+to resume; earlier saved candidates count toward the same total limit. Each new
+revision receives previous evaluation feedback, and rejected candidates also
+count as attempts. All versions and evaluations are preserved. An already
+successful or exhausted session makes no further generation calls.
+
+The wrapper allows at most one hundred model calls for a fresh ten-attempt
+session, covering an orchestrator, up to eight skill agents and one checkpoint
+agent per candidate. Resuming preserves the existing session call budget instead
+of expanding it. Infrastructure errors, usage limits and API failures stop the
+run immediately. A final summary reports the stopping reason and best result;
+reaching the attempt cap is not reported as success. Keep Qwen and the Codex proxy
+running, and stop unrelated simulator or model workers. The script does not
+guarantee that graph refinement can repair low level physics or perception issues.
+
 The no-generation reference validator exercises the same compiler, subprocess
 runner, trace binding and feedback builder as model-generated graphs.
 
