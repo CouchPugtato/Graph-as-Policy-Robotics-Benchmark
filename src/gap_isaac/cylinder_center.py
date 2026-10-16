@@ -19,7 +19,7 @@ def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def fit_center(points, initial_xy) -> dict:
+def fit_center(points, initial_xy, *, top_rim=None) -> dict:
     import numpy as np
 
     cloud = np.asarray(points, dtype=float)
@@ -74,9 +74,27 @@ def fit_center(points, initial_xy) -> dict:
         raise ValueError("Cylinder fit lacks sidewall consensus")
     angles = np.sort(np.arctan2(inliers[:, 1] - center[1], inliers[:, 0] - center[0]))
     span = float(2 * np.pi - np.max(np.diff(np.r_[angles, angles[0] + 2 * np.pi])))
+    side_span = span
+    rim_support = None
+    if span < np.pi / 3 and top_rim is not None:
+        rim = np.asarray(top_rim, dtype=float)
+        if (rim.ndim != 2 or rim.shape[1] != 3 or not 8 <= len(rim) <= 128
+                or not np.isfinite(rim).all() or np.ptp(rim[:, 2]) > .001
+                or abs(np.median(rim[:, 2]) - top) > .002):
+            raise ValueError("Cylinder top rim evidence is invalid")
+        radial = np.linalg.norm(rim[:, :2] - center, axis=1) - RADIUS_M
+        supported = np.abs(radial) <= .0015
+        if np.count_nonzero(supported) >= 8 and supported.mean() >= .65:
+            rim_angles = np.sort(np.arctan2(rim[supported, 1] - center[1],
+                                           rim[supported, 0] - center[0]))
+            rim_span = float(2 * np.pi - np.max(np.diff(
+                np.r_[rim_angles, rim_angles[0] + 2 * np.pi])))
+            if rim_span >= np.pi / 3:
+                span = rim_span
+                rim_support = {"points": int(supported.sum()), "angular_span_rad": rim_span,
+                    "rms_radial_error_m": float(np.sqrt(np.mean(radial[supported] ** 2)))}
     rms = float(np.sqrt(np.mean(residual[mask] ** 2)))
     shift = float(np.linalg.norm(center - initial))
-    # Independent halves expose a poorly constrained or mixed-surface fit.
     split_centers = []
     for subset in (inliers[::2], inliers[1::2]):
         trial = center.copy()
@@ -95,6 +113,7 @@ def fit_center(points, initial_xy) -> dict:
             "sidewall_points": len(side), "inlier_count": len(inliers),
             "inlier_fraction": len(inliers) / len(side), "rms_radial_error_m": rms,
             "angular_span_rad": span, "split_center_distance_m": stability,
+            "sidewall_angular_span_rad": side_span, "top_rim_support": rim_support,
             "uses_evaluator_pose": False}
 
 

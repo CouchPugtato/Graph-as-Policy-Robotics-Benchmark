@@ -8,7 +8,8 @@ CPU PyTorch is needed because the official benchmark reads its initial state fil
 
 ## Setup on native Windows
 
-Keep Isaac and perception models closed. From PowerShell 7 in the repository root
+Keep Isaac and unrelated model workers closed. Local VLM graphs need Qwen in LM Studio.
+From PowerShell 7 in the repository root
 
 ```powershell
 .\scripts\windows\prepare-libero.ps1
@@ -29,7 +30,7 @@ Existing conflicting DLLs or private macros are not overwritten.
 The runner defaults to capture of libero_spatial task zero, initial state zero,
 seed zero. Suite, TaskId, InitStateId and Seed are optional overrides.
 Output directories are generated automatically. There are no manual stopped
-confirmation switches; keep Isaac and perception models closed before capture or motion.
+confirmation switches; keep Isaac and unrelated model workers closed before capture or motion.
 
 ## First task
 
@@ -172,6 +173,48 @@ The matched custom grocery task has separately completed a physical grasp,
 transport and release using all ten nodes of the unchanged accepted graph.
 This does not establish performance on official LIBERO bowl tasks.
 No Isaac benchmark score applies to LIBERO.
+
+## Executable image perception
+
+The separate vision task captures 640 by 480 RGB-D observations and executes
+color detection, binary segmentation, masked depth reconstruction and bounded
+cylinder or basket fitting as graph nodes. Shape dimensions and the ground plane
+are declared priors, not measured simulator object poses. The hand-authored vision
+adapter is marked separately from its source model-generated workflow.
+
+Target found and container found predicates return explicit true or false outputs.
+False branches abort before motion if geometry is missing or unreliable. Grasp and
+placement predicates also appear as actual router nodes. Detection boxes, masks,
+world point clouds, fit reports, observation hashes and routing outputs are saved.
+There is no automatic simulator pose fallback. Privileged object state remains in
+the independent evaluation receipt and is not passed to the perception functions.
+
+This backend is lightweight CPU color perception, not DINO VLM SAM inference and
+not unrestricted semantic recognition. Camera intrinsics use integer pixel center
+coordinates, including the half pixel correction for MuJoCo rendered images.
+
+### Local vision language identification
+
+Select the `local-vlm` backend to insert real `identify_target` and
+`identify_container` tool nodes between detection and segmentation. The detector
+proposes up to six colored connected components without identifying the target.
+Local Qwen selects an ID from enlarged labeled crops. That selection determines
+the mask used for depth fitting; null or invalid selections cannot fall back to
+the known blue or green identity. Unsupported geometry still fails closed.
+
+LM Studio uses the same `qwen3-vl-4b-instruct` model and port 1234 as the earlier
+local vision tests. No hosted vision API, new model download or model loading in
+the LIBERO process is required. The loaded Qwen server must remain running while
+other large model workers and Isaac are stopped. There are at most two inference
+requests per episode, 128 output tokens each, no retries and no cloud fallback.
+Candidate sheets, replies, model identifiers and selection outputs are saved.
+Before starting the renderer this mode verifies GPU zero is the RTX 5080 and has
+at least four GiB of free VRAM. Reduce the LM Studio context or stop other models
+if the headroom check fails. No automatic model loading or unloading is performed.
+
+`python -m gap_libero.vision_workflow --source-version PATH\v0001` now prepares
+a separate local VLM adaptation by default. Add `--backend rgbd-color` to retain
+the CPU only catalog. Previously generated and evaluated graphs are not changed.
 
 Grocery bindings derive the downward grasp heading from the target bearing plus
 a quarter turn, keeping the Panda wrist away from its end stop. Basket headings

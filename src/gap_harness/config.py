@@ -10,7 +10,7 @@ from dotenv import dotenv_values
 
 ROOT = Path(__file__).resolve().parents[2]
 ENV_KEYS = {"OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_MODEL", "OPENAI_REASONING_EFFORT",
-            "GAP_CODEX_PROXY_KEY"}
+            "GAP_CODEX_PROXY_KEY", "GAP_VLM_BASE_URL", "GAP_VLM_MODEL", "GAP_VLM_API_KEY"}
 PLATFORM_URL = "https://api.openai.com/v1"
 DEFAULT_MODEL = "gpt-6.1-sol"
 DEFAULT_REASONING_EFFORT = "medium"

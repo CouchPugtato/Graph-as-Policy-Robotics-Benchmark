@@ -24,7 +24,9 @@ This single mode argument selects the most recently evaluated session under
 results/harness. It reads actual per version feedback and graphs rather than the
 manual sample history. If the final policy has no matching recording, it runs one
 bounded representative LIBERO variation and records camera observations. Keep Isaac,
-LM Studio and perception workers closed. No API calls or model loading are involved.
+and unrelated perception workers closed. For a local VLM task keep Qwen and the
+LM Studio local server running; otherwise keep LM Studio closed. Local VLM graphs
+make bounded loopback identification requests, not hosted model requests.
 
 The video first reveals each evaluated revision and its measured success rate, then
 plays the final policy continuously while highlighting active and completed graph
@@ -32,14 +34,36 @@ nodes using recorded simulator steps. Subgraph frames come from actual agent gen
 membership. Earlier graphs are not presented as controlling the final recording.
 Missing or unevaluated revisions are not assigned invented success rates.
 
+Graphs with executable router nodes show diamond predicates and labeled true false
+and error routes. Highlighting follows the recorded outputs. Perception and predicate
+actions that consume no simulation steps receive short presentation holds so they
+remain visible in the video. The manifest records this extra presentation time;
+these holds do not represent extra simulator motion or fabricated inference timing.
+
 The representative variation is the first successful trial of the final evaluated
 revision, or its first trial if none succeeded. A new recording does not alter the
 historical campaign rate. Its actual success or failure is shown at the end. Subsequent
-exports reuse matching footage. Output is a new session/visualizations/TIMESTAMP folder
-containing libero-final.mp4 and a provenance manifest. Original graphs, feedback,
-receipts and videos are never overwritten. Video is 720p at 60 fps; native camera
+exports reuse matching footage. The default output is the single
+docs/visualizations/visualizer_final_graph.mp4 file with only a high resolution
+policy-graph.png alongside it. No manifest or preview image is exported.
+Successful exports replace this
+presentation video atomically. Original graphs feedback and receipts stay unchanged.
+Explicit alternate video paths still refuse overwrites. The app exports 1080p at 60 fps;
+use `--width 1280` for 720p. Native camera
 motion is recorded at 20 fps and frames are held for display rather than interpolated.
 Only a small image cache and two CPU encoder threads are used after the simulator exits.
+
+Double speed footage is the default without changing the controller or measured
+success rates. Use `--playback-speed 1` for normal speed. Speed is not shown on the
+video. Decision presentation holds remain. Each actual
+subgraph stays on one horizontal row. Long subgraphs use a full width graph above
+the chart and footage so individual tools remain visible.
+
+Boxes use short action labels without repeated subtitles. During playback an
+active node gets a large description popup connected to its box. Router popups
+include the actual outcome when that result is being presented. Recorded zero step
+actions pause for readability without adding simulated execution time. The graph
+PNG uses the same compact labels without a permanent key or inactive popups.
 
 To select a particular session using one positional argument instead:
 
@@ -136,6 +160,12 @@ manual annotations, not changes detected by the visualizer.
 This tool does not record or rerun Isaac itself. It composes existing artifacts.
 
 ## Tests
+
+The default graph view shows every tool and decision node within its actual
+subgraph. New generation groups perception tools inside physical action goals
+rather than standalone vision subgraphs. Use `--graph-detail actions` only when
+an optional compact projection is wanted. That projection folds linear perception
+chains without modifying executable graphs or evaluation receipts.
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest .\visualizer\test_app.py

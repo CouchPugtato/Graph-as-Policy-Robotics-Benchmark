@@ -60,6 +60,8 @@ def validate_topology(topology: Topology, task: Task, max_subgraphs=8):
     for spec in topology.subgraphs:
         if spec.skill not in skills:
             raise ValueError(f"undeployed skill {spec.skill}")
+        if next(skill for skill in task.skills if skill.name == spec.skill).shared_tools:
+            raise ValueError("shared perception tools belong inside physical action subgraphs")
         unique(spec.exits, "subgraph exits")
         if spec.on_error in spec.exits or not spec.on_error:
             raise ValueError("failure exit must be distinct from success exits")
@@ -112,7 +114,7 @@ def compile_workflow(topology: Topology, subgraphs: list[Subgraph], task: Task,
     if set(generated) != set(specs):
         raise ValueError("skill agents must fill exactly the declared subgraphs")
     skills = {skill.name: skill for skill in task.skills}
-    nodes, membership = [], {}
+    nodes, membership, kinds = [], {}, {}
 
     def entry(target):
         if target in generated:
@@ -126,7 +128,17 @@ def compile_workflow(topology: Topology, subgraphs: list[Subgraph], task: Task,
         exits = set(spec.exits) | {spec.on_error}
         if local & exits:
             raise ValueError("local nodes cannot shadow exits")
-        actions = {action.name: action for action in skills[spec.skill].actions}
+        actions = {action.name: action for skill in task.skills
+                   if skill.shared_tools for action in skill.actions}
+        actions.update({action.name: action for action in skills[spec.skill].actions})
+        assigned = {action.name for action in skills[spec.skill].actions
+                    if action.kind != "router"}
+        shared = {action.name for skill in task.skills if skill.shared_tools
+                  for action in skill.actions}
+        used = {node.action for node in graph.nodes}
+        if used & shared and not used & assigned:
+            raise ValueError("perception tools must accompany an assigned physical action "
+                             "inside the same subgraph")
         outer = routes_map(spec.routes)
         adjacency = {}
         for node in graph.nodes:
@@ -135,8 +147,11 @@ def compile_workflow(topology: Topology, subgraphs: list[Subgraph], task: Task,
             routes = routes_map(node.routes)
             if set(routes) != set(actions[node.action].outcomes):
                 raise ValueError("node must route every declared action outcome")
-            if "succeeded" not in routes or "failed" not in routes:
+            positive = "true" if node.kind == "router" else "succeeded"
+            if positive not in routes or "failed" not in routes:
                 raise ValueError("actions must expose success and failure outcomes")
+            if node.kind == "router" and "false" not in routes:
+                raise ValueError("routers must expose true false and failed outcomes")
             if set(routes.values()) - (local | exits):
                 raise ValueError("inner route leaves its subgraph without an exit")
             if routes["failed"] in spec.exits:
@@ -144,6 +159,7 @@ def compile_workflow(topology: Topology, subgraphs: list[Subgraph], task: Task,
             adjacency[node.name] = list(routes.values())
             node_id = f"{name}__{node.name}"
             membership[node_id] = name
+            kinds[node_id] = node.kind
             nodes.append({"id": node_id, "skill": spec.skill, "action": node.action,
                           "routes": {outcome: (entry(outer[target]) if target in exits
                                                else f"{name}__{target}")
@@ -167,6 +183,7 @@ def compile_workflow(topology: Topology, subgraphs: list[Subgraph], task: Task,
               "start": entry(topology.start), "nodes": nodes,
               "terminals": {terminal.name: terminal.status for terminal in topology.terminals},
               "metadata": {"task_id": task.task_id, "subgraph_membership": membership,
+                           "node_kinds": kinds,
                            "hierarchical": True}}
     unique([node["id"] for node in nodes], "compiled node names")
     if {node["id"] for node in nodes} & set(result["terminals"]):
@@ -181,7 +198,9 @@ def compile_workflow(topology: Topology, subgraphs: list[Subgraph], task: Task,
                 for outcome, target in parent["routes"].items():
                     if target == node["id"]:
                         paths.append(completed[parent["id"]] | (
-                            {parent["action"]} if outcome == "succeeded" else set()))
+                            {parent["action"]} if outcome == (
+                                "true" if kinds[parent["id"]] == "router" else "succeeded")
+                            else set()))
             updated[node["id"]] = set.intersection(*paths) if paths else set()
         if updated == completed:
             break
@@ -192,7 +211,8 @@ def compile_workflow(topology: Topology, subgraphs: list[Subgraph], task: Task,
         for outcome, target in node["routes"].items():
             if result["terminals"].get(target) == "succeeded":
                 reached = completed[node["id"]] | (
-                    {node["action"]} if outcome == "succeeded" else set())
+                    {node["action"]} if outcome == (
+                        "true" if kinds[node["id"]] == "router" else "succeeded") else set())
                 if set(task.required_actions) - reached:
                     raise ValueError("success path can skip required task actions")
     GraphPolicy.from_dict(result)

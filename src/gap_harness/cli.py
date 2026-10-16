@@ -22,7 +22,7 @@ from gap_harness.evaluations import evaluation_complete, load_feedback
 from gap_harness.provider import OpenAIResponses
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_TASK = ROOT / "harness/tasks/libero-grocery.json"
+DEFAULT_TASK = ROOT / "harness/tasks/libero-grocery-local-vlm.json"
 
 
 def failure_summary(error):
@@ -38,7 +38,7 @@ def main():
     load_environment()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=["check", "api-check", "generate", "evaluate", "iterate"])
-    parser.add_argument("--task", type=Path, default=DEFAULT_TASK)
+    parser.add_argument("--task", type=Path)
     parser.add_argument("--session", type=Path)
     parser.add_argument("--version", type=Path)
     parser.add_argument("--model", default=os.environ.get("OPENAI_MODEL") or DEFAULT_MODEL)
@@ -54,7 +54,8 @@ def main():
     if args.mode in ("api-check", "generate", "iterate") and not args.live:
         parser.error("model requests require --live and use hosted service allowance or billing")
     if args.mode in ("evaluate", "iterate") and not args.execute:
-        parser.error("evaluation requires --execute and all other simulators and models stopped")
+        parser.error("evaluation requires --execute; stop Isaac and unrelated model workers "
+                     "but keep LM Studio running for a local VLM task")
     if args.mode == "evaluate" and args.version is None:
         parser.error("evaluation requires --version")
     session = args.session or (args.version.resolve().parent if args.version else
@@ -83,7 +84,10 @@ def main():
                               "structured_outputs_validated": True,
                               "simulator_started": False}, indent=2))
             return
-        harness = Harness(args.task, session, provider, max_subgraphs=args.max_subgraphs,
+        manifest = session / "session.json"
+        task_path = args.task or (json.loads(manifest.read_text(encoding="utf-8")).get(
+            "task_manifest_path", str(DEFAULT_TASK)) if manifest.is_file() else DEFAULT_TASK)
+        harness = Harness(task_path, session, provider, max_subgraphs=args.max_subgraphs,
                           max_calls=args.max_calls)
         if args.mode == "check":
             result = {"ok": True, "task": harness.task.task_id,

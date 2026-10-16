@@ -42,8 +42,10 @@ def build_trial_feedback(receipt, task: Task, graph, checkpoints: CheckpointSet,
     criteria = {path: lookup(receipt, path) is True for path in task.required_true}
     if not isinstance(trace, list):
         trace = []
+    kinds = graph.get("metadata", {}).get("node_kinds", {})
     failed = [event for event in trace if isinstance(event, dict)
-              and event.get("outcome") != "succeeded"]
+              and event.get("outcome") != (
+                  "true" if kinds.get(event.get("node_id")) == "router" else "succeeded")]
     attribution = []
     for event in failed:
         attribution.append({"node": event.get("node_id"),

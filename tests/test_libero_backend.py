@@ -150,7 +150,9 @@ def test_capture_flips_rgb_and_metric_depth_together_and_round_trips(tmp_path):
     bundle.save(tmp_path / "capture")
     loaded = ObservationBundle.load(tmp_path / "capture")
     assert loaded.source == "libero-rgbd-only"
-    assert loaded.pixel_to_world(0, 0) == pytest.approx([0, 0, 1.2])
+    assert loaded.observation.camera.cx == -.5
+    assert loaded.observation.camera.cy == -.5
+    assert loaded.pixel_to_world(0, 0) == pytest.approx([.3, .3, 1.2])
     with pytest.raises(FileExistsError):
         bundle.save(tmp_path / "capture")
 

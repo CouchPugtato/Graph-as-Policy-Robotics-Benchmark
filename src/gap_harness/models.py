@@ -47,7 +47,7 @@ class Topology(StrictModel):
 
 class Node(StrictModel):
     name: str = Field(pattern=r"^[a-zA-Z][a-zA-Z0-9_]*$")
-    kind: Literal["tool", "script"]
+    kind: Literal["tool", "script", "router"]
     action: str
     routes: list[Route]
 
@@ -73,7 +73,7 @@ class CheckpointSet(StrictModel):
 
 class ActionDefinition(StrictModel):
     name: str
-    kind: Literal["tool", "script"] = "tool"
+    kind: Literal["tool", "script", "router"] = "tool"
     description: str
     outcomes: list[str] = Field(default_factory=lambda: ["succeeded", "failed"])
     requires: list[str] = Field(default_factory=list)
@@ -81,6 +81,7 @@ class ActionDefinition(StrictModel):
 
 class SkillDefinition(StrictModel):
     name: str
+    shared_tools: bool = False
     description: str
     instructions: str
     actions: list[ActionDefinition] = Field(min_length=1)

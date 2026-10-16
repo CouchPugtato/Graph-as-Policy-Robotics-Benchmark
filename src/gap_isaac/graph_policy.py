@@ -33,6 +33,7 @@ class TraceEvent:
     outcome: str
     next_node: str
     detail: str = ""
+    outputs: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -69,6 +70,9 @@ class GraphPolicy:
         start = str(payload.get("start", "")).strip()
         if not graph_id or not start:
             raise ValueError("graph_id and start are required")
+        metadata = payload.get("metadata", {})
+        if not isinstance(metadata, Mapping):
+            raise ValueError("graph metadata must be an object")
 
         raw_terminals = payload.get("terminals")
         if not isinstance(raw_terminals, Mapping) or not raw_terminals:
@@ -101,7 +105,12 @@ class GraphPolicy:
             raise ValueError(f"start node does not exist: {start}")
         known_targets = set(nodes) | set(terminals)
         for node in nodes.values():
-            if "succeeded" not in node.routes:
+            kind = metadata.get("node_kinds", {}).get(node.node_id)
+            if kind == "router":
+                if not {"true", "false", "failed"} <= set(node.routes):
+                    raise ValueError(
+                        f"router requires true false and failed routes: {node.node_id}")
+            elif "succeeded" not in node.routes:
                 raise ValueError(f"node has no succeeded route: {node.node_id}")
             unknown = set(node.routes.values()) - known_targets
             if unknown:
@@ -109,9 +118,6 @@ class GraphPolicy:
                     f"node {node.node_id} routes to unknown targets: {sorted(unknown)}"
                 )
 
-        metadata = payload.get("metadata", {})
-        if not isinstance(metadata, Mapping):
-            raise ValueError("graph metadata must be an object")
         return cls(graph_id, start, nodes, terminals, dict(metadata))
 
     @classmethod
@@ -173,6 +179,7 @@ class GraphPolicyExecutor:
                     outcome=result.outcome,
                     next_node=next_node,
                     detail=result.detail,
+                    outputs=dict(result.outputs) if result.outputs is not None else None,
                 )
             )
             if next_node in self._policy.terminals:

@@ -1,0 +1,335 @@
+{
+  "schema_version": 1,
+  "task_id": "libero-grocery-vision",
+  "instruction": "Observe RGB-D and localize the blue alphabet_soup cylinder and green basket from image evidence before motion. Use explicit true false routers for target found container found grasp verified and placement verified. Abort on missing geometry. Pick the target and place it into the basket. No simulator object pose fallback.",
+  "skills": [
+    {
+      "name": "perceiving-proxy-objects",
+      "shared_tools": true,
+      "description": "CPU color segmentation and calibrated depth geometry for colored proxies",
+      "instructions": "Execute observe detect segment estimate check. This is not DINO or SAM. Rejected geometry produces a false route not a successful detection.",
+      "actions": [
+        {
+          "name": "observe_scene",
+          "description": "Capture calibrated RGB-D"
+        },
+        {
+          "name": "detect_target",
+          "description": "Detect the configured color in camera pixels",
+          "requires": [
+            "observe_scene"
+          ]
+        },
+        {
+          "name": "segment_target",
+          "description": "Produce and save a binary image mask",
+          "requires": [
+            "detect_target"
+          ]
+        },
+        {
+          "name": "estimate_target",
+          "description": "Reconstruct metric geometry from masked depth",
+          "requires": [
+            "segment_target"
+          ]
+        },
+        {
+          "name": "check_target",
+          "kind": "router",
+          "description": "Return true only for valid image derived geometry",
+          "outcomes": [
+            "true",
+            "false",
+            "failed"
+          ],
+          "requires": [
+            "estimate_target"
+          ]
+        },
+        {
+          "name": "detect_container",
+          "description": "Detect the configured color in camera pixels",
+          "requires": [
+            "observe_scene"
+          ]
+        },
+        {
+          "name": "segment_container",
+          "description": "Produce and save a binary image mask",
+          "requires": [
+            "detect_container"
+          ]
+        },
+        {
+          "name": "estimate_container",
+          "description": "Reconstruct metric geometry from masked depth",
+          "requires": [
+            "segment_container"
+          ]
+        },
+        {
+          "name": "check_container",
+          "kind": "router",
+          "description": "Return true only for valid image derived geometry",
+          "outcomes": [
+            "true",
+            "false",
+            "failed"
+          ],
+          "requires": [
+            "estimate_container"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "grasping-direct-ik",
+      "description": "Open align descend close and lift with verified physical grasping",
+      "instructions": "Use the upstream skill guidance but only the deployed aliases below. The binding supplies scene dependent poses and checks holds. Do not invent perception or cuRobo tools. Lift may be included here or in a separate subgraph using this skill.",
+      "actions": [
+        {
+          "name": "open_gripper",
+          "kind": "tool",
+          "description": "Open fingers before approaching",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ],
+          "requires": [
+            "check_target",
+            "check_container"
+          ]
+        },
+        {
+          "name": "align_over_target",
+          "kind": "tool",
+          "description": "Move above the target with grasp orientation",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ],
+          "requires": [
+            "open_gripper"
+          ]
+        },
+        {
+          "name": "descend_to_grasp",
+          "kind": "tool",
+          "description": "Descend to the grasp pose",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ],
+          "requires": [
+            "align_over_target"
+          ]
+        },
+        {
+          "name": "close_gripper",
+          "kind": "tool",
+          "description": "Close with bounded force and verify two finger contact",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ],
+          "requires": [
+            "descend_to_grasp"
+          ]
+        },
+        {
+          "name": "lift_grasped",
+          "kind": "tool",
+          "description": "Lift the held object and verify elevation and grasp",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ],
+          "requires": [
+            "check_grasp"
+          ]
+        },
+        {
+          "name": "check_grasp",
+          "kind": "router",
+          "description": "Route on verified two finger contact after closing",
+          "requires": [
+            "close_gripper"
+          ],
+          "outcomes": [
+            "true",
+            "false",
+            "failed"
+          ]
+        }
+      ],
+      "reference_files": [
+        "../../cache/upstream/open-robot-skills/skills/grasping-direct-ik/SKILL.md"
+      ]
+    },
+    {
+      "name": "transporting-objects",
+      "description": "Transport a verified held object into the basket and release",
+      "instructions": "The deployed actions resolve poses from the scene. Require lift before transport then position release retract and settle. No direct coordinate editing or physics changes are available.",
+      "actions": [
+        {
+          "name": "move_over_basket",
+          "kind": "tool",
+          "description": "Carry held target over the basket",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ],
+          "requires": [
+            "lift_grasped"
+          ]
+        },
+        {
+          "name": "position_for_release",
+          "kind": "tool",
+          "description": "Lower held target inside the basket opening",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ],
+          "requires": [
+            "move_over_basket"
+          ]
+        },
+        {
+          "name": "release_object",
+          "kind": "tool",
+          "description": "Open and verify release",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ],
+          "requires": [
+            "position_for_release"
+          ]
+        },
+        {
+          "name": "retract_from_basket",
+          "kind": "tool",
+          "description": "Retract clear of the basket after release",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ],
+          "requires": [
+            "release_object"
+          ]
+        },
+        {
+          "name": "settle_release",
+          "kind": "tool",
+          "description": "Wait for settling and verify task containment",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ],
+          "requires": [
+            "retract_from_basket"
+          ]
+        },
+        {
+          "name": "check_placement",
+          "kind": "router",
+          "description": "Route on the unchanged containment and release predicate",
+          "requires": [
+            "settle_release"
+          ],
+          "outcomes": [
+            "true",
+            "false",
+            "failed"
+          ]
+        }
+      ],
+      "reference_files": [
+        "../../cache/upstream/open-robot-skills/skills/transporting-objects/SKILL.md"
+      ]
+    }
+  ],
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+  ],
+  "initial_inputs": [],
+  "checkpoint_evidence": [
+    "evaluation.checkpoints.target_grasped",
+    "evaluation.checkpoints.target_lifted",
+    "evaluation.checkpoints.target_released",
+    "evaluation.checkpoints.target_contained",
+    "evaluation.task_success",
+    "perception.target_found",
+    "perception.container_found"
+  ],
+  "required_true": [
+    "evaluation.checkpoints.target_grasped",
+    "evaluation.checkpoints.target_lifted",
+    "evaluation.checkpoints.target_released",
+    "evaluation.checkpoints.target_contained",
+    "evaluation.task_success",
+    "perception.target_found",
+    "perception.container_found"
+  ],
+  "required_actions": [
+    "open_gripper",
+    "align_over_target",
+    "descend_to_grasp",
+    "close_gripper",
+    "lift_grasped",
+    "move_over_basket",
+    "position_for_release",
+    "release_object",
+    "retract_from_basket",
+    "settle_release",
+    "observe_scene",
+    "detect_target",
+    "segment_target",
+    "estimate_target",
+    "check_target",
+    "detect_container",
+    "segment_container",
+    "estimate_container",
+    "check_container",
+    "check_grasp",
+    "check_placement"
+  ],
+  "runner": {
+    "command": [
+      "{root}/.venv-libero/Scripts/python.exe",
+      "-m",
+      "gap_libero.cli",
+      "compare-grocery",
+      "--seed",
+      "{seed}",
+      "--graph",
+      "{graph}",
+      "--output",
+      "{output}",
+      "--enable-motion",
+      "--perception-backend",
+      "rgbd-color"
+    ],
+    "cwd": "../..",
+    "timeout_s": 120,
+    "receipt": "receipt.json"
+  },
+  "limitations": [
+    "Custom proxy grocery task not an official LIBERO benchmark",
+    "Color specific identification not neural semantic perception",
+    "Known cylinder dimensions basket dimensions and support plane are priors",
+    "Privileged simulator state remains confined to the evaluator and contact checks",
+    "Adapted graph is hand authored and not a new model generated revision"
+  ]
+}

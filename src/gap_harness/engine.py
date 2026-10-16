@@ -27,16 +27,31 @@ You are the orchestrator or behavior agent. Choose the number of subgraphs and
 the skill for each from the task catalog. Define only topology and contracts
 not internal nodes. Each subgraph has success exits and a distinct on_error exit
 with outer routes for all exits. Include success and failure terminals.
+Choose subgraph count boundaries and names from the task and deployed capabilities
+without assuming a fixed decomposition. Every subgraph must serve a physical action
+goal. Catalog skills marked shared_tools supply internal tools to those goals
+and must not receive standalone perception or vision subgraphs. Keep observation
+identification segmentation geometry and decision nodes explicit inside the
+physical subgraph that needs them and honor all prerequisites before motion.
+Name each subgraph for its physical objective rather than its sensing method.
+Do not create subgraphs devoted only to sensing or computation even if assigned
+a physical skill. Perception is supporting work inside
+a physical goal not a separate top level phase. Every subgraph using shared tools
+must also execute an action from its assigned physical skill.
 On revision use the previous workflow and rehearsal feedback to revise topology
 and skill contracts while preserving working behavior. Do not manufacture state
 outputs that deployed bindings do not supply. Use empty ports when not applicable.
 """
 SKILL_AGENT = COMMON + """
 You are the skill agent for exactly one declared subgraph. Build its internal
-state machine using only actions deployed for your assigned skill. Each node
+state machine using only actions deployed for your assigned skill or the supplied
+shared tool catalogs. Keep perception nodes explicit inside this physical action
+subgraph rather than creating separate vision phases. Each node
 routes every catalog outcome to a local node or a declared subgraph exit.
 Node kind must match the catalog. Failure may recover locally or use on_error
 but must not become a success exit. Do not create checkpoints or change topology.
+Router nodes execute a deployed predicate and route its true false or failed output.
+Route false to recovery or the error exit never to task success.
 Do not emit arbitrary code. Script nodes reference existing deployed functions.
 Respect catalog action prerequisites across subgraph boundaries as well as locally.
 """
@@ -219,6 +234,8 @@ class Harness:
                     result = self.call(version, f"skill-{spec.name}", SKILL_AGENT,
                         {"instruction": self.task.instruction, "assignment": spec.model_dump(),
                          "skill": skill.model_dump(), "references": self.references[spec.skill],
+                         "shared_tools": [item.model_dump() for item in self.task.skills
+                                          if item.shared_tools],
                          "previous": previous}, Subgraph)
                     dump(version / f"subgraph-{spec.name}.json", result.model_dump())
                     generated.append(result)

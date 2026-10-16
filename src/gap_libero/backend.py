@@ -199,6 +199,9 @@ class LiberoBackend:
         depth = camera_utils.get_real_depth_map(self.env.sim, raw_depth).astype("<f4")
         intrinsic = camera_utils.get_camera_intrinsic_matrix(
             self.env.sim, self.camera, height, width)
+        # integer image coordinates denote pixel centers rather than pixel corners
+        intrinsic = np.asarray(intrinsic, dtype=float).copy()
+        intrinsic[:2, 2] -= .5
         extrinsic = camera_utils.get_camera_extrinsic_matrix(self.env.sim, self.camera)
         position = self.eef_position()
         quaternion = self.eef_orientation()

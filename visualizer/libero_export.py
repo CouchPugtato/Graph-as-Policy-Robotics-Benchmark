@@ -149,7 +149,10 @@ def record_final(session, record, manifest, destination):
                    if key not in {"OPENAI_API_KEY", "OPENROUTER_API_KEY", "HF_TOKEN",
                                   "HUGGING_FACE_HUB_TOKEN", "GAP_CODEX_PROXY_KEY"}}
     environment.setdefault("LIBERO_CONFIG_PATH", str(cwd / "cache/libero-config"))
-    print("Recording one final LIBERO run keep Isaac and perception models closed", flush=True)
+    local_vlm = "local-vlm" in command
+    print("Recording one final LIBERO run keep Isaac and other model workers closed; "
+          + ("keep local Qwen running in LM Studio" if local_vlm else "keep LM Studio closed"),
+          flush=True)
     with (destination.parent / "recording.log").open("x", encoding="utf-8") as handle:
         subprocess.run(command, cwd=cwd, env=environment, stdout=handle,
                        stdin=subprocess.DEVNULL,
@@ -171,22 +174,25 @@ def graph_state(receipt, step, final=False):
     if len(trace) != len(trajectory):
         raise ValueError("recorded run requires one timed sample per graph trace event")
     completed, active, failed = [], None, None
+    taken = {}
     previous = 0
     for event, sample in zip(trace, trajectory, strict=True):
         start, end = sample.get("start_step", previous), sample["step"]
         if event["action"] != sample["action"] or start < previous or end < start:
             raise ValueError("recorded action timeline does not match the graph trace")
         if step >= end:
-            if event["outcome"] == "succeeded":
+            taken[event["node_id"]] = event["outcome"]
+            if event["outcome"] in {"succeeded", "true", "found"}:
                 completed.append(event["node_id"])
             else:
                 failed = event["node_id"]
         elif start <= step < end:
             active = event["node_id"]
         previous = end
-    if final and trace and trace[-1]["outcome"] != "succeeded":
+    if final and trace and trace[-1]["outcome"] not in {"succeeded", "true", "found"}:
         failed = trace[-1]["node_id"]
-    return {"completed_nodes": completed, "active_node": active, "failed_node": failed}
+    return {"completed_nodes": completed, "active_node": active, "failed_node": failed,
+            "taken_routes": taken}
 
 
 def font(size):
@@ -194,10 +200,11 @@ def font(size):
     return ImageFont.truetype(str(path), size) if path.is_file() else ImageFont.load_default()
 
 
-def composite(base, pixels, label, status, color, size):
+def composite(base, pixels, label, status, color, size, footage_bounds=(.637, .039, .331, .445)):
     image = Image.fromarray(base)
-    left, top = round(.637 * size[0]), round(.516 * size[1])
-    width, height = round(.331 * size[0]), round(.445 * size[1])
+    x, y, w, h = footage_bounds
+    left, top = round(x * size[0]), round((1-y-h) * size[1])
+    width, height = round(w * size[0]), round(h * size[1])
     scene = ImageOps.pad(Image.fromarray(pixels), (width, height), color="#1b2329")
     image.paste(scene, (left, top))
     draw = ImageDraw.Draw(image)
@@ -211,13 +218,17 @@ def composite(base, pixels, label, status, color, size):
     return image
 
 
-def render_movie(data, receipt_path, output, *, fps=60, size=(1280, 720), recap_s=1.25):
+def render_movie(data, receipt_path, output, *, fps=60, size=(1280, 720), recap_s=1.25,
+                 playback_speed=1):
+    if not math.isfinite(playback_speed) or not 1 <= playback_speed <= 4:
+        raise ValueError("playback speed must be between one and four")
     receipt_path, output = Path(receipt_path), Path(output)
     receipt = read(receipt_path)
     recording = receipt_path.parent / "recording"
     frames = frame_index(recording)
     records = data["iterations"]
     last = records[-1]
+    footage_bounds = app.presentation_layout(last)["footage_axes"]
     if receipt.get("graph_sha256") != last["graph_sha256"]:
         raise ValueError("final footage belongs to a different graph")
     steps = [frame["step"] for frame in frames["frames"]]
@@ -233,6 +244,10 @@ def render_movie(data, receipt_path, output, *, fps=60, size=(1280, 720), recap_
                "-movflags", "+faststart", str(output)]
     process = subprocess.Popen(command, stdin=subprocess.PIPE)
     bases = {}
+    zero_step_events = [(index, event, sample) for index, (event, sample) in enumerate(zip(
+        receipt["graph"]["trace"], receipt["trajectory"], strict=True))
+        if sample.get("start_step") == sample["step"]]
+    presented, pause_seconds = set(), 0.0
     try:
         for index, record in enumerate(records):
             print(f"Rendering measured revision {record['iteration']}", flush=True)
@@ -240,16 +255,48 @@ def render_movie(data, receipt_path, output, *, fps=60, size=(1280, 720), recap_
             for _ in range(max(1, round(recap_s * fps))):
                 process.stdin.write(image.tobytes())
         previous_frame, pixels = None, None
-        for number in range(math.ceil(duration * fps)):
-            source_step = min(final_step, steps[0] + number * frames["fps"] / fps)
+        video_frames = math.ceil(duration * fps / playback_speed)
+        for number in range(video_frames):
+            source_step = (final_step if number == video_frames - 1 else min(
+                final_step, steps[0] + number * frames["fps"] * playback_speed / fps))
             index = max(0, bisect_right(steps, source_step) - 1)
             frame = frames["frames"][index]
             if index != previous_frame:
                 with Image.open(recording / frame["file"]) as source:
                     pixels = np.asarray(source.convert("RGB"))
                 previous_frame = index
+            for event_index, event, sample in zero_step_events:
+                if event_index in presented or sample["step"] > frame["step"]:
+                    continue
+                view = app.action_view(last)
+                display_members = view["policy"].get("metadata", {}).get("display_members", {})
+                group = next((names for names in display_members.values()
+                              if event["node_id"] in names), None)
+                if group and event["node_id"] != group[-1] and event["outcome"] == "succeeded":
+                    presented.add(event_index)
+                    continue
+                prefix = receipt["graph"]["trace"][:event_index]
+                display = dict(data, iterations=list(records))
+                display["iterations"][-1] = dict(last, changed=[],
+                    completed_nodes=[item["node_id"] for item in prefix
+                                     if item["outcome"] in {"succeeded", "true", "found"}],
+                    active_node=event["node_id"], failed_node=None,
+                    node_outcome=event["outcome"],
+                    taken_routes={item["node_id"]: item["outcome"] for item in prefix})
+                base = app.render(display, len(records)-1, size=size)
+                projected = app.action_view(display["iterations"][-1])
+                label = next(node["action"] for node in projected["policy"]["nodes"]
+                             if node["id"] == projected["active_node"])
+                evidence = composite(base, pixels, "recorded preparation and decision step",
+                    f"{label}  {event['outcome']}", app.BLUE, size, footage_bounds)
+                count = max(1, round(1.1 * fps))
+                for _ in range(count):
+                    process.stdin.write(evidence.tobytes())
+                pause_seconds += count / fps
+                presented.add(event_index)
             state = graph_state(receipt, frame["step"], final=frame["step"] == final_step)
-            key = (state["active_node"], tuple(state["completed_nodes"]), state["failed_node"])
+            key = (state["active_node"], tuple(state["completed_nodes"]), state["failed_node"],
+                   tuple(state["taken_routes"].items()))
             if key not in bases:
                 if len(bases) >= 4:
                     bases.pop(next(iter(bases)))
@@ -262,7 +309,7 @@ def render_movie(data, receipt_path, output, *, fps=60, size=(1280, 720), recap_
             image = composite(bases[key], pixels,
                 f"final LIBERO run  variation {last['seed']}",
                 status if done else "running", app.GREEN if done and receipt.get("ok")
-                else app.RED if done else "#525c66", size)
+                else app.RED if done else "#525c66", size, footage_bounds)
             process.stdin.write(image.tobytes())
         # retain the final measured state without looping the simulation
         for _ in range(fps):
@@ -282,32 +329,43 @@ def render_movie(data, receipt_path, output, *, fps=60, size=(1280, 720), recap_
                 process.wait(timeout=5)
     return {"fps": fps, "native_simulation_fps": frames["fps"], "dimensions": list(size),
             "simulation_duration_s": duration, "recap_seconds_per_revision": recap_s,
+            "playback_speed": playback_speed,
+            "motion_playback_duration_s": video_frames / fps,
+            "zero_step_presentation_pause_s": pause_seconds,
             "recorded_run_ok": receipt.get("ok"),
             "footage_receipt": str(receipt_path.resolve()),
             "footage_receipt_sha256": sha256(receipt_path),
             "rates": [{key: record[key] for key in ("iteration", "successes", "trials")}
                       for record in records],
             "graph_sha256": last["graph_sha256"],
-            "note": "fresh final run recording does not change measured iteration rates"}
+            "graph_detail": last.get("graph_detail", "tools"),
+            "note": "zero step actions use presentation holds not extra simulation time; "
+                    "fresh final run recording does not change measured iteration rates"}
 
 
-def export_session(session=None, output=None):
+def export_session(session=None, output=None, *, size=(1280, 720), graph_detail="tools",
+                   playback_speed=2):
+    if not math.isfinite(playback_speed) or not 1 <= playback_speed <= 4:
+        raise ValueError("playback speed must be between one and four")
     session = Path(session).resolve() if session else latest_session()
     data, manifest = session_history(session)
+    for record in data["iterations"]:
+        record["graph_detail"] = graph_detail
     identifier = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid4().hex[:8]
     destination = session / "visualizations" / identifier
     destination.mkdir(parents=True, exist_ok=False)
-    output = Path(output).resolve() if output else destination / "libero-final.mp4"
-    if output.exists():
+    canonical = (ROOT / "docs/visualizations/visualizer_final_graph.mp4").resolve()
+    output = Path(output).resolve() if output else canonical
+    if output.exists() and output != canonical:
         raise FileExistsError("existing video was not overwritten")
     output.parent.mkdir(parents=True, exist_ok=True)
-    receipt, started = record_final(session, data["iterations"][-1], manifest,
-                                     destination / "replay")
+    receipt, _ = record_final(session, data["iterations"][-1], manifest,
+                              destination / "replay")
     print("LIBERO stopped encoding video with two CPU threads", flush=True)
-    provenance = render_movie(data, receipt, output)
-    provenance.update(session=str(session), simulation_started=started, models_loaded=False)
-    with output.with_suffix(".manifest.json").open("x", encoding="utf-8") as handle:
-        json.dump(provenance, handle, indent=2)
+    staged = output.with_name(f".{output.stem}-{identifier}.mp4")
+    render_movie(data, receipt, staged, size=size, playback_speed=playback_speed)
+    staged.replace(output)
+    app.export_graph_image(data["iterations"][-1], output.parent / "policy-graph.png")
     print(output, flush=True)
     return output
 

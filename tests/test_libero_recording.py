@@ -164,14 +164,55 @@ def test_export_encodes_real_video_and_provenance(tmp_path):
     assert manifest["fps"] == 12 and manifest["rates"][0]["successes"] == 1
 
 
+def test_fast_playback_preserves_simulation_duration_and_measured_rate(tmp_path):
+    session = session_fixture(tmp_path, 1)
+    data, _ = libero_export.session_history(session)
+    receipt = recording_fixture(tmp_path / "replay", session / "v0001/graph.json")
+    manifest = libero_export.render_movie(data, receipt, tmp_path / "fast.mp4", fps=20,
+                                          size=(640, 360), recap_s=.1, playback_speed=2)
+    assert manifest["playback_speed"] == 2
+    assert manifest["simulation_duration_s"] == .2
+    assert manifest["motion_playback_duration_s"] == .1
+    assert manifest["rates"][0]["successes"] == 1
+    with pytest.raises(ValueError, match="playback speed"):
+        libero_export.render_movie(data, receipt, tmp_path / "invalid.mp4", playback_speed=0)
+
+
+def test_zero_step_actions_get_disclosed_presentation_holds(tmp_path):
+    session = session_fixture(tmp_path, 1)
+    data, _ = libero_export.session_history(session)
+    path = recording_fixture(tmp_path / "replay", session / "v0001/graph.json")
+    receipt = json.loads(path.read_text())
+    receipt["trajectory"][0]["step"] = 0
+    path.write_text(json.dumps(receipt))
+    manifest = libero_export.render_movie(data, path, tmp_path / "zero-step.mp4", fps=4,
+                                          size=(640, 360), recap_s=.1)
+    assert manifest["zero_step_presentation_pause_s"] > 0
+    assert manifest["simulation_duration_s"] == .2
+
+
 def test_automatic_session_export_uses_real_receipts_without_simulator(tmp_path, monkeypatch):
     session = session_fixture(tmp_path, 1)
     directory = session / "visualizations/existing/replay"
     directory.parent.mkdir(parents=True)
     recording_fixture(directory, session / "v0001/graph.json")
     monkeypatch.setattr(libero_export, "latest_session", lambda: session)
+    monkeypatch.setattr(libero_export, "ROOT", tmp_path)
+    render_movie = libero_export.render_movie
+    rendered = []
+    def capture_render(*args, **kwargs):
+        result = render_movie(*args, **kwargs)
+        rendered.append(result)
+        return result
+    monkeypatch.setattr(libero_export, "render_movie", capture_render)
     output = libero_export.export_session()
-    provenance = json.loads(output.with_suffix(".manifest.json").read_text())
-    assert output.is_file() and not provenance["simulation_started"]
+    provenance = rendered[-1]
+    assert output.is_file()
     assert provenance["fps"] == 60
+    assert provenance["playback_speed"] == 2
+    assert (output.parent / "policy-graph.png").is_file()
     assert provenance["rates"] == [{"iteration": 1, "successes": 1, "trials": 1}]
+    assert libero_export.export_session() == output
+    assert sorted(path.name for path in output.parent.iterdir()) == [
+        "policy-graph.png", "visualizer_final_graph.mp4"]
+    assert not list(session.glob("visualizations/*/presentation.json"))

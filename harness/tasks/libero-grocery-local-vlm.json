@@ -1,0 +1,393 @@
+{
+  "schema_version": 1,
+  "task_id": "libero-grocery-local-vlm",
+  "instruction": "Use local Qwen through LM Studio to identify the designated blue upright cylinder alphabet_soup proxy and green open basket from enlarged candidate image crops. Execute observe detect identify segment estimate check before motion. Use explicit true false routes for found grasp verified and placement verified. Abort when semantic selection or geometry is missing. No cloud or oracle fallback.",
+  "skills": [
+    {
+      "name": "perceiving-proxy-objects",
+      "shared_tools": true,
+      "description": "Local VLM identification and calibrated RGB-D proxy geometry",
+      "instructions": "The detector proposes up to six colored regions without choosing an object. identify_target and identify_container invoke the loaded local Qwen model and choose a region by its requested description. Their selection controls the mask and depth geometry. Two total local inference calls per episode. There is no color identity fallback and no hosted VLM provider.",
+      "actions": [
+        {
+          "name": "observe_scene",
+          "kind": "tool",
+          "description": "Capture calibrated RGB-D",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ],
+          "requires": []
+        },
+        {
+          "name": "detect_target",
+          "kind": "tool",
+          "description": "Detect the configured color in camera pixels",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ],
+          "requires": [
+            "observe_scene"
+          ]
+        },
+        {
+          "name": "segment_target",
+          "kind": "tool",
+          "description": "Produce and save a binary image mask",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ],
+          "requires": [
+            "identify_target"
+          ]
+        },
+        {
+          "name": "estimate_target",
+          "kind": "tool",
+          "description": "Reconstruct metric geometry from masked depth",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ],
+          "requires": [
+            "segment_target"
+          ]
+        },
+        {
+          "name": "check_target",
+          "kind": "router",
+          "description": "Return true only for valid image derived geometry",
+          "outcomes": [
+            "true",
+            "false",
+            "failed"
+          ],
+          "requires": [
+            "estimate_target"
+          ]
+        },
+        {
+          "name": "detect_container",
+          "kind": "tool",
+          "description": "Detect the configured color in camera pixels",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ],
+          "requires": [
+            "observe_scene"
+          ]
+        },
+        {
+          "name": "segment_container",
+          "kind": "tool",
+          "description": "Produce and save a binary image mask",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ],
+          "requires": [
+            "identify_container"
+          ]
+        },
+        {
+          "name": "estimate_container",
+          "kind": "tool",
+          "description": "Reconstruct metric geometry from masked depth",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ],
+          "requires": [
+            "segment_container"
+          ]
+        },
+        {
+          "name": "check_container",
+          "kind": "router",
+          "description": "Return true only for valid image derived geometry",
+          "outcomes": [
+            "true",
+            "false",
+            "failed"
+          ],
+          "requires": [
+            "estimate_container"
+          ]
+        },
+        {
+          "name": "identify_target",
+          "description": "Use local Qwen to choose a candidate by visual description",
+          "requires": [
+            "detect_target"
+          ]
+        },
+        {
+          "name": "identify_container",
+          "description": "Use local Qwen to choose a candidate by visual description",
+          "requires": [
+            "detect_container"
+          ]
+        }
+      ],
+      "reference_files": []
+    },
+    {
+      "name": "grasping-direct-ik",
+      "description": "Open align descend close and lift with verified physical grasping",
+      "instructions": "Use the upstream skill guidance but only the deployed aliases below. The binding supplies scene dependent poses and checks holds. Do not invent perception or cuRobo tools. Lift may be included here or in a separate subgraph using this skill.",
+      "actions": [
+        {
+          "name": "open_gripper",
+          "kind": "tool",
+          "description": "Open fingers before approaching",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ],
+          "requires": [
+            "check_target",
+            "check_container"
+          ]
+        },
+        {
+          "name": "align_over_target",
+          "kind": "tool",
+          "description": "Move above the target with grasp orientation",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ],
+          "requires": [
+            "open_gripper"
+          ]
+        },
+        {
+          "name": "descend_to_grasp",
+          "kind": "tool",
+          "description": "Descend to the grasp pose",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ],
+          "requires": [
+            "align_over_target"
+          ]
+        },
+        {
+          "name": "close_gripper",
+          "kind": "tool",
+          "description": "Close with bounded force and verify two finger contact",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ],
+          "requires": [
+            "descend_to_grasp"
+          ]
+        },
+        {
+          "name": "lift_grasped",
+          "kind": "tool",
+          "description": "Lift the held object and verify elevation and grasp",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ],
+          "requires": [
+            "check_grasp"
+          ]
+        },
+        {
+          "name": "check_grasp",
+          "kind": "router",
+          "description": "Route on verified two finger contact after closing",
+          "outcomes": [
+            "true",
+            "false",
+            "failed"
+          ],
+          "requires": [
+            "close_gripper"
+          ]
+        }
+      ],
+      "reference_files": [
+        "../../cache/upstream/open-robot-skills/skills/grasping-direct-ik/SKILL.md"
+      ]
+    },
+    {
+      "name": "transporting-objects",
+      "description": "Transport a verified held object into the basket and release",
+      "instructions": "The deployed actions resolve poses from the scene. Require lift before transport then position release retract and settle. No direct coordinate editing or physics changes are available.",
+      "actions": [
+        {
+          "name": "move_over_basket",
+          "kind": "tool",
+          "description": "Carry held target over the basket",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ],
+          "requires": [
+            "lift_grasped"
+          ]
+        },
+        {
+          "name": "position_for_release",
+          "kind": "tool",
+          "description": "Lower held target inside the basket opening",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ],
+          "requires": [
+            "move_over_basket"
+          ]
+        },
+        {
+          "name": "release_object",
+          "kind": "tool",
+          "description": "Open and verify release",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ],
+          "requires": [
+            "position_for_release"
+          ]
+        },
+        {
+          "name": "retract_from_basket",
+          "kind": "tool",
+          "description": "Retract clear of the basket after release",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ],
+          "requires": [
+            "release_object"
+          ]
+        },
+        {
+          "name": "settle_release",
+          "kind": "tool",
+          "description": "Wait for settling and verify task containment",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ],
+          "requires": [
+            "retract_from_basket"
+          ]
+        },
+        {
+          "name": "check_placement",
+          "kind": "router",
+          "description": "Route on the unchanged containment and release predicate",
+          "outcomes": [
+            "true",
+            "false",
+            "failed"
+          ],
+          "requires": [
+            "settle_release"
+          ]
+        }
+      ],
+      "reference_files": [
+        "../../cache/upstream/open-robot-skills/skills/transporting-objects/SKILL.md"
+      ]
+    }
+  ],
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+  ],
+  "initial_inputs": [],
+  "checkpoint_evidence": [
+    "evaluation.checkpoints.target_grasped",
+    "evaluation.checkpoints.target_lifted",
+    "evaluation.checkpoints.target_released",
+    "evaluation.checkpoints.target_contained",
+    "evaluation.task_success",
+    "perception.target_found",
+    "perception.container_found",
+    "perception.target_identified",
+    "perception.container_identified"
+  ],
+  "required_true": [
+    "evaluation.checkpoints.target_grasped",
+    "evaluation.checkpoints.target_lifted",
+    "evaluation.checkpoints.target_released",
+    "evaluation.checkpoints.target_contained",
+    "evaluation.task_success",
+    "perception.target_found",
+    "perception.container_found",
+    "perception.target_identified",
+    "perception.container_identified"
+  ],
+  "required_actions": [
+    "open_gripper",
+    "align_over_target",
+    "descend_to_grasp",
+    "close_gripper",
+    "lift_grasped",
+    "move_over_basket",
+    "position_for_release",
+    "release_object",
+    "retract_from_basket",
+    "settle_release",
+    "observe_scene",
+    "detect_target",
+    "segment_target",
+    "estimate_target",
+    "check_target",
+    "detect_container",
+    "segment_container",
+    "estimate_container",
+    "check_container",
+    "check_grasp",
+    "check_placement",
+    "identify_target",
+    "identify_container"
+  ],
+  "runner": {
+    "command": [
+      "{root}/.venv-libero/Scripts/python.exe",
+      "-m",
+      "gap_libero.cli",
+      "compare-grocery",
+      "--seed",
+      "{seed}",
+      "--graph",
+      "{graph}",
+      "--output",
+      "{output}",
+      "--enable-motion",
+      "--perception-backend",
+      "local-vlm"
+    ],
+    "cwd": "../..",
+    "timeout_s": 180,
+    "receipt": "receipt.json"
+  },
+  "limitations": [
+    "Custom proxy grocery task not an official LIBERO benchmark",
+    "Color region proposals are not a general object detector or DINO",
+    "Local Qwen identifies candidates while masks remain image color components not SAM",
+    "Known cylinder basket dimensions and support plane remain geometry priors",
+    "LM Studio must be started manually with the local vision model loaded",
+    "Prepared graph adaptation is hand authored not a new model generated revision"
+  ]
+}

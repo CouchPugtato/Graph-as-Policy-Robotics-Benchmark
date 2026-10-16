@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from gap_harness.engine import Harness, digest, read
+from gap_harness.engine import COORDINATOR, Harness, digest, read
 from gap_harness.feedback import aggregate_feedback, build_trial_feedback, compact_feedback
 from gap_harness.models import CheckpointSet, Subgraph, Task, Topology
 from gap_harness.progress import Progress
@@ -32,6 +32,14 @@ def task_payload():
                         "actions": [{"name": "act", "description": "test action"}]}],
             "seeds": [0, 1], "checkpoint_evidence": ["evaluation.verified"],
             "required_true": ["evaluation.verified"], "required_actions": ["act"]}
+
+
+def test_coordinator_leaves_physical_decomposition_to_the_agent():
+    assert "without assuming a fixed decomposition" in COORDINATOR
+    assert "Every subgraph must serve a physical action" in COORDINATOR
+    assert "grasp_and_lift" not in COORDINATOR
+    assert "transport_and_release" not in COORDINATOR
+    assert "grocery" not in COORDINATOR
 
 
 def topology_payload(count=1):
@@ -65,6 +73,25 @@ def compiled(count=1):
     return compile_workflow(Topology.model_validate(topology_payload(count)),
         [Subgraph.model_validate(subgraph_payload(f"phase{i}")) for i in range(count)],
         Task.model_validate(task_payload()), CheckpointSet.model_validate(checks_payload(count)))
+
+
+def test_shared_vision_cannot_form_a_standalone_physical_subgraph():
+    payload = task_payload()
+    payload["skills"].append({"name": "vision", "shared_tools": True,
+        "description": "shared vision", "instructions": "capture inside an action goal",
+        "actions": [{"name": "observe", "description": "capture image"}]})
+    task = Task.model_validate(payload)
+    topology = Topology.model_validate(topology_payload())
+    graph = subgraph_payload("phase0")
+    graph["nodes"][0]["action"] = "observe"
+    with pytest.raises(ValueError, match="accompany an assigned physical action"):
+        compile_workflow(topology, [Subgraph.model_validate(graph)], task)
+    graph["nodes"][0]["routes"][0]["target"] = "move"
+    graph["nodes"].append({"name": "move", "kind": "tool", "action": "act",
+        "routes": [{"outcome": "succeeded", "target": "ready"},
+                   {"outcome": "failed", "target": "error"}]})
+    result = compile_workflow(topology, [Subgraph.model_validate(graph)], task)
+    assert [node["action"] for node in result["nodes"]] == ["observe", "act"]
 
 
 class FakeProvider:

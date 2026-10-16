@@ -23,11 +23,53 @@ needed. The transport uses httpx and Pydantic with python dotenv for local setti
 
 The CLI loads the repository root .env automatically without variable expansion.
 Existing shell settings take precedence. Only OPENAI_API_KEY, OPENAI_BASE_URL,
-OPENAI_MODEL, OPENAI_REASONING_EFFORT and GAP_CODEX_PROXY_KEY are read from the file.
+OPENAI_MODEL, OPENAI_REASONING_EFFORT, GAP_CODEX_PROXY_KEY, GAP_VLM_BASE_URL,
+GAP_VLM_MODEL and GAP_VLM_API_KEY are read from the file.
 Never paste credentials
 into chat, task JSON or a command that will be committed. Requests send the instruction,
 catalog, selected skill references and revision feedback to the configured service.
 Images are not uploaded automatically.
+
+New sessions default to `harness/tasks/libero-grocery-local-vlm.json`. It deploys
+RGB-D capture, color region proposals, local Qwen identification, binary masks,
+metric shape fitting and explicit boolean routers. Load `qwen3-vl-4b-instruct` in
+LM Studio and start Local Server on `http://127.0.0.1:1234/v1` before evaluating.
+The VLM chooses regions from enlarged labeled crops and its choice controls the
+mask and geometry. There is no known color identity fallback or cloud fallback.
+This remains a colored proxy detector and shape fitting backend, not DINO or SAM.
+Motion requires both identification and geometry checks to pass and cannot fall
+back to simulator object poses. Two local inference calls are allowed per episode,
+with 128 output tokens per call, 35 second client timeouts and no retries.
+Ten variations therefore make at most twenty local inference calls, separate from
+the hosted graph generation call budget. No weights are loaded by the worker.
+Keep Isaac and other large models stopped, but keep Qwen in LM Studio running.
+
+```powershell
+.\.venv\Scripts\python.exe -m gap_libero.local_vlm check
+```
+
+This only checks endpoint model availability and makes no inference call.
+Use `GAP_VLM_BASE_URL`, `GAP_VLM_MODEL` and optional `GAP_VLM_API_KEY` to override
+the local settings. Numeric loopback endpoints are mandatory; OpenAI or OpenRouter
+keys are never forwarded. The original CPU only mode remains available through
+`--task harness/tasks/libero-grocery-vision.json`.
+Old sessions automatically retain their original task manifest unless `--task` is
+supplied. To start a new geometry-only session explicitly select
+`--task harness/tasks/libero-grocery.json`.
+
+Router nodes declare `true`, `false` and `failed` routes. Their actual outputs are
+retained per trace event. The visualizer draws their real predicates as diamonds
+and labels edges with the declared routing values rather than inventing checks.
+
+An existing generated workflow can be adapted without a model call:
+
+```powershell
+.\.venv\Scripts\python.exe -m gap_libero.vision_workflow --source-version PATH\v0001
+```
+
+The command creates a separate vision session with explicit hand-authored adaptation
+provenance. It does not rewrite or reclassify the original generated graph. Evaluate
+its printed version path with the usual `evaluate --version PATH --execute` command.
 
 ### Local Codex compatibility proxy
 
@@ -96,7 +138,8 @@ When iterating, progress also shows the current revision attempt, variation inde
 worker log path, each seed result and the running rehearsal score. Normal completion
 keeps the final JSON summary on stdout so it remains usable by other scripts.
 
-To rehearse that version, close Isaac, LM Studio and perception workers first.
+To rehearse that version, close Isaac and unrelated model workers first.
+Keep Qwen and the LM Studio local server running for a local VLM task.
 Replace SESSION with the printed path.
 
 ```powershell
