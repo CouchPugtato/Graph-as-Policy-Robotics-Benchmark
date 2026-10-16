@@ -21,8 +21,13 @@ Use only the deployed catalog. Never change the evaluator or simulator.
 Return only the requested structured object. Do not invent capabilities.
 If existing bindings cannot perform the task report that limitation in your rationale.
 Do not encode per seed solutions. Outputs are shared state keys supplied by bindings.
+Task required_actions must occur on every successful path. Required_executed_actions
+must appear in the graph and execute successfully in each successful episode but
+can be inside stateful loops that have a normal exhaustion branch.
 """
-COORDINATOR = COMMON + """
+COORDINATOR = (
+    COMMON
+    + """
 You are the orchestrator or behavior agent. Choose the number of subgraphs and
 the skill for each from the task catalog. Define only topology and contracts
 not internal nodes. Each subgraph has success exits and a distinct on_error exit
@@ -42,7 +47,10 @@ On revision use the previous workflow and rehearsal feedback to revise topology
 and skill contracts while preserving working behavior. Do not manufacture state
 outputs that deployed bindings do not supply. Use empty ports when not applicable.
 """
-SKILL_AGENT = COMMON + """
+)
+SKILL_AGENT = (
+    COMMON
+    + """
 You are the skill agent for exactly one declared subgraph. Build its internal
 state machine using only actions deployed for your assigned skill or the supplied
 shared tool catalogs. Keep perception nodes explicit inside this physical action
@@ -51,11 +59,18 @@ routes every catalog outcome to a local node or a declared subgraph exit.
 Node kind must match the catalog. Failure may recover locally or use on_error
 but must not become a success exit. Do not create checkpoints or change topology.
 Router nodes execute a deployed predicate and route its true false or failed output.
-Route false to recovery or the error exit never to task success.
+Route false to recovery or the error exit unless the catalog explicitly defines
+normal loop exhaustion. Loop exhaustion may advance to a final verification check
+but never bypass that check to task success.
 Do not emit arbitrary code. Script nodes reference existing deployed functions.
 Respect catalog action prerequisites across subgraph boundaries as well as locally.
+Workflow required actions are global requirements not a request to duplicate
+every action in each assigned subgraph.
 """
-CHECKPOINT_AGENT = COMMON + """
+)
+CHECKPOINT_AGENT = (
+    COMMON
+    + """
 You are the separate whole workflow checkpoint agent. Author one to six meaningful
 postcondition checks per subgraph using only declared receipt evidence paths.
 Do not change graph structure or write action code. Each check includes rationale
@@ -63,6 +78,7 @@ and expected true false succeeded or failed. Choose evidence relevant to the
 assigned subgraph rather than requiring final task success for every phase.
 Evidence is evaluated after rehearsal from the saved receipt and phase records.
 """
+)
 
 
 def dump(path: Path, value):
@@ -92,10 +108,12 @@ def session_lock(session):
 
 
 class Harness:
-    def __init__(self, task_path, session, provider=None, *, max_subgraphs=8, max_calls=48,
-                 progress=None):
+    def __init__(
+        self, task_path, session, provider=None, *, max_subgraphs=8, max_calls=48, progress=None
+    ):
         self.task_path = Path(task_path).resolve()
-        self.task = Task.model_validate(read(self.task_path))
+        task_document = read(self.task_path)
+        self.task = Task.model_validate(task_document)
         self.session = Path(session).resolve()
         self.provider = provider
         self.max_subgraphs, self.max_calls = max_subgraphs, max_calls
@@ -106,10 +124,19 @@ class Harness:
             for filename in skill.reference_files:
                 path = (self.task_path.parent / filename).resolve()
                 self.references[skill.name][filename] = path.read_text(encoding="utf-8")
-        self.snapshot = {"task": self.task.model_dump(), "references": self.references,
-                         "max_subgraphs": max_subgraphs, "max_calls": max_calls}
+        task_snapshot = self.task.model_dump()
+        for key in ("required_executed_actions", "max_trace_steps"):
+            if key not in task_document:
+                task_snapshot.pop(key)
+        self.snapshot = {
+            "task": task_snapshot,
+            "references": self.references,
+            "max_subgraphs": max_subgraphs,
+            "max_calls": max_calls,
+        }
         self.task_sha256 = hashlib.sha256(
-            json.dumps(self.snapshot, sort_keys=True).encode()).hexdigest()
+            json.dumps(self.snapshot, sort_keys=True).encode()
+        ).hexdigest()
 
     def prepare(self):
         self.session.mkdir(parents=True, exist_ok=True)
@@ -118,12 +145,17 @@ class Harness:
             if read(manifest)["task_sha256"] != self.task_sha256:
                 raise ValueError("task catalog references or limits changed use a new session")
         else:
-            dump(manifest, {"task_sha256": self.task_sha256,
-                            "task_manifest_path": str(self.task_path), **self.snapshot})
+            dump(
+                manifest,
+                {
+                    "task_sha256": self.task_sha256,
+                    "task_manifest_path": str(self.task_path),
+                    **self.snapshot,
+                },
+            )
 
     def versions(self):
-        return sorted(path for path in self.session.glob("v[0-9][0-9][0-9][0-9]")
-                      if path.is_dir())
+        return sorted(path for path in self.session.glob("v[0-9][0-9][0-9][0-9]") if path.is_dir())
 
     def call(self, version, role, instructions, context, output_model):
         if self.provider is None:
@@ -138,17 +170,29 @@ class Harness:
             raise ValueError("agent context exceeds the bounded input size")
         call_dir = version / "calls" / f"{len(list((version / 'calls').iterdir())):03d}-{role}"
         call_dir.mkdir()
-        dump(call_dir / "request.json", {"role": role, "instructions": instructions,
-             "context": context, "schema": output_model.model_json_schema(),
-             "api": (self.provider.public_settings()
-                     if hasattr(self.provider, "public_settings") else None)})
+        dump(
+            call_dir / "request.json",
+            {
+                "role": role,
+                "instructions": instructions,
+                "context": context,
+                "schema": output_model.model_json_schema(),
+                "api": (
+                    self.provider.public_settings()
+                    if hasattr(self.provider, "public_settings")
+                    else None
+                ),
+            },
+        )
         label = f"{version.name} {role}"
         started = self.progress.clock()
         try:
             requested_cap = getattr(self.provider, "max_output_tokens", "unknown")
-            limits = (f"call {len(calls)+1}/{self.max_calls}; context {context_size:,} chars; "
-                      f"requested output cap {requested_cap}; "
-                      f"client timeout setting {getattr(self.provider, 'timeout_s', 'unknown')}s")
+            limits = (
+                f"call {len(calls) + 1}/{self.max_calls}; context {context_size:,} chars; "
+                f"requested output cap {requested_cap}; "
+                f"client timeout setting {getattr(self.provider, 'timeout_s', 'unknown')}s"
+            )
             with self.progress.waiting(label, limits):
                 response = self.provider.complete(instructions, context, output_model)
             dump(call_dir / "response.json", response)
@@ -157,16 +201,21 @@ class Harness:
             result = output_model.model_validate_json(response["text"])
             elapsed = self.progress.clock() - started
             usage = response.get("usage") or {}
-            call_tokens = (f"call tokens in {usage.get('input_tokens', 'unknown')}, "
-                           f"out {usage.get('output_tokens', 'unknown')}")
-            self.progress.event(f"{label}: completed and parsed in {elapsed:.1f}s | "
-                                f"{call_tokens} | "
-                                + usage_summary(self.session, self.max_calls))
+            call_tokens = (
+                f"call tokens in {usage.get('input_tokens', 'unknown')}, "
+                f"out {usage.get('output_tokens', 'unknown')}"
+            )
+            self.progress.event(
+                f"{label}: completed and parsed in {elapsed:.1f}s | "
+                f"{call_tokens} | " + usage_summary(self.session, self.max_calls)
+            )
             return result
         except Exception as error:
             dump(call_dir / "error.json", {"error_type": type(error).__name__})
-            self.progress.event(f"{label}: failed ({type(error).__name__}) after "
-                f"{self.progress.clock()-started:.1f}s | artifacts {call_dir}")
+            self.progress.event(
+                f"{label}: failed ({type(error).__name__}) after "
+                f"{self.progress.clock() - started:.1f}s | artifacts {call_dir}"
+            )
             self.progress.event(usage_summary(self.session, self.max_calls))
             raise
 
@@ -175,11 +224,19 @@ class Harness:
         with session_lock(self.session):
             versions = self.versions()
             if versions:
-                latest = next((feedback for ancestor in reversed(versions)
-                               if (feedback := load_feedback(ancestor)) is not None), None)
+                latest = next(
+                    (
+                        feedback
+                        for ancestor in reversed(versions)
+                        if (feedback := load_feedback(ancestor)) is not None
+                    ),
+                    None,
+                )
                 if latest is not None and not evaluation_complete(latest):
-                    raise ValueError("infrastructure failure requires reevaluation of the same "
-                                     "graph before generating another revision")
+                    raise ValueError(
+                        "infrastructure failure requires reevaluation of the same "
+                        "graph before generating another revision"
+                    )
             number = int(versions[-1].name[1:]) + 1 if versions else 1
             if number > 9999:
                 raise ValueError("session version limit exceeded")
@@ -195,79 +252,149 @@ class Harness:
                     previous["validation"] = read(parent / "validation.json")
                 for filename in ("workflow.json", "feedback.json"):
                     for ancestor in reversed(versions):
-                        value = (load_feedback(ancestor) if filename == "feedback.json" else
-                                 read(ancestor / filename) if (ancestor / filename).exists()
-                                 else None)
+                        value = (
+                            load_feedback(ancestor)
+                            if filename == "feedback.json"
+                            else read(ancestor / filename)
+                            if (ancestor / filename).exists()
+                            else None
+                        )
                         if value is not None:
                             key = filename.removesuffix(".json")
                             previous[key] = compact_feedback(value) if key == "feedback" else value
                             previous[f"{key}_version"] = ancestor.name
                             break
                 previous["history"] = [
-                    {"version": ancestor.name,
-                     **{key: load_feedback(ancestor)[key]
-                        for key in ("trials", "successes", "success_rate")}}
-                    for ancestor in versions if load_feedback(ancestor) is not None
-                    and evaluation_complete(load_feedback(ancestor))]
-            dump(version / "lineage.json", {"parent": versions[-1].name if versions else None,
-                 "task_sha256": self.task_sha256,
-                 "model": getattr(self.provider, "model", "test-provider"),
-                 "api": (self.provider.public_settings()
-                         if hasattr(self.provider, "public_settings") else None)})
+                    {
+                        "version": ancestor.name,
+                        **{
+                            key: load_feedback(ancestor)[key]
+                            for key in ("trials", "successes", "success_rate")
+                        },
+                    }
+                    for ancestor in versions
+                    if load_feedback(ancestor) is not None
+                    and evaluation_complete(load_feedback(ancestor))
+                ]
+            dump(
+                version / "lineage.json",
+                {
+                    "parent": versions[-1].name if versions else None,
+                    "task_sha256": self.task_sha256,
+                    "model": getattr(self.provider, "model", "test-provider"),
+                    "api": (
+                        self.provider.public_settings()
+                        if hasattr(self.provider, "public_settings")
+                        else None
+                    ),
+                },
+            )
             try:
                 if previous:
-                    self.progress.event(f"{version.name}: using prior revision evidence from "
-                                        f"{previous['version']}")
-                context = {"task": self.task.model_dump(exclude={"runner"}),
-                           "max_subgraphs": self.max_subgraphs, "previous": previous}
+                    self.progress.event(
+                        f"{version.name}: using prior revision evidence from {previous['version']}"
+                    )
+                context = {
+                    "task": self.task.model_dump(exclude={"runner"}),
+                    "max_subgraphs": self.max_subgraphs,
+                    "previous": previous,
+                }
                 topology = self.call(version, "coordinator", COORDINATOR, context, Topology)
                 dump(version / "topology.json", topology.model_dump())
                 self.progress.event(f"{version.name}: validating orchestrator topology")
                 validate_topology(topology, self.task, self.max_subgraphs)
-                self.progress.event(f"{version.name}: topology valid; orchestrator assigned "
-                                    f"{len(topology.subgraphs)} skill agent(s)")
+                self.progress.event(
+                    f"{version.name}: topology valid; orchestrator assigned "
+                    f"{len(topology.subgraphs)} skill agent(s)"
+                )
                 generated = []
                 for index, spec in enumerate(topology.subgraphs, start=1):
-                    self.progress.event(f"{version.name}: skill agent {index}/"
-                        f"{len(topology.subgraphs)} | {spec.name} | skill {spec.skill}")
+                    self.progress.event(
+                        f"{version.name}: skill agent {index}/"
+                        f"{len(topology.subgraphs)} | {spec.name} | skill {spec.skill}"
+                    )
                     skill = next(skill for skill in self.task.skills if skill.name == spec.skill)
-                    result = self.call(version, f"skill-{spec.name}", SKILL_AGENT,
-                        {"instruction": self.task.instruction, "assignment": spec.model_dump(),
-                         "skill": skill.model_dump(), "references": self.references[spec.skill],
-                         "shared_tools": [item.model_dump() for item in self.task.skills
-                                          if item.shared_tools],
-                         "previous": previous}, Subgraph)
+                    result = self.call(
+                        version,
+                        f"skill-{spec.name}",
+                        SKILL_AGENT,
+                        {
+                            "instruction": self.task.instruction,
+                            "assignment": spec.model_dump(),
+                            "skill": skill.model_dump(),
+                            "references": self.references[spec.skill],
+                            "workflow_required_actions": sorted(
+                                set(
+                                    self.task.required_actions + self.task.required_executed_actions
+                                )
+                            ),
+                            "max_trace_steps": self.task.max_trace_steps,
+                            "shared_tools": [
+                                item.model_dump() for item in self.task.skills if item.shared_tools
+                            ],
+                            "previous": previous,
+                        },
+                        Subgraph,
+                    )
                     dump(version / f"subgraph-{spec.name}.json", result.model_dump())
                     generated.append(result)
-                    self.progress.event(f"{version.name}: saved {spec.name} "
-                                        f"with {len(result.nodes)} node(s)")
+                    self.progress.event(
+                        f"{version.name}: saved {spec.name} with {len(result.nodes)} node(s)"
+                    )
                 self.progress.event(f"{version.name}: assembling and validating skill subgraphs")
                 compile_workflow(topology, generated, self.task, max_subgraphs=self.max_subgraphs)
                 self.progress.event(f"{version.name}: subgraphs valid; starting checkpoint agent")
-                workflow = {"topology": topology.model_dump(),
-                            "subgraphs": [graph.model_dump() for graph in generated]}
-                checkpoints = self.call(version, "checkpoint-agent", CHECKPOINT_AGENT,
-                    {"instruction": self.task.instruction, "workflow": workflow,
-                     "allowed_evidence": self.task.checkpoint_evidence}, CheckpointSet)
+                workflow = {
+                    "topology": topology.model_dump(),
+                    "subgraphs": [graph.model_dump() for graph in generated],
+                }
+                checkpoints = self.call(
+                    version,
+                    "checkpoint-agent",
+                    CHECKPOINT_AGENT,
+                    {
+                        "instruction": self.task.instruction,
+                        "workflow": workflow,
+                        "allowed_evidence": self.task.checkpoint_evidence,
+                    },
+                    CheckpointSet,
+                )
                 dump(version / "checkpoints.json", checkpoints.model_dump())
-                self.progress.event(f"{version.name}: saved {len(checkpoints.checkpoints)} "
-                                    "checkpoint(s); running final structural validation")
-                graph = compile_workflow(topology, generated, self.task, checkpoints,
-                                         self.max_subgraphs)
+                self.progress.event(
+                    f"{version.name}: saved {len(checkpoints.checkpoints)} "
+                    "checkpoint(s); running final structural validation"
+                )
+                graph = compile_workflow(
+                    topology, generated, self.task, checkpoints, self.max_subgraphs
+                )
                 dump(version / "workflow.json", {**workflow, **checkpoints.model_dump()})
                 dump(version / "graph.json", graph)
-                dump(version / "validation.json", {"ok": True, "graph_sha256": digest(
-                    version / "graph.json"), "skill_agent_count": len(generated),
-                    "execution_validated": False})
-                self.progress.event(f"{version.name}: structurally valid graph saved "
-                    f"({len(graph['nodes'])} nodes) | {version / 'graph.json'}")
-                self.progress.event(f"{version.name}: generation complete; simulation not yet "
-                                    "evaluated | " + usage_summary(self.session, self.max_calls))
+                dump(
+                    version / "validation.json",
+                    {
+                        "ok": True,
+                        "graph_sha256": digest(version / "graph.json"),
+                        "skill_agent_count": len(generated),
+                        "execution_validated": False,
+                    },
+                )
+                self.progress.event(
+                    f"{version.name}: structurally valid graph saved "
+                    f"({len(graph['nodes'])} nodes) | {version / 'graph.json'}"
+                )
+                self.progress.event(
+                    f"{version.name}: generation complete; simulation not yet "
+                    "evaluated | " + usage_summary(self.session, self.max_calls)
+                )
             except Exception as error:
-                dump(version / "validation.json", {"ok": False,
-                     "error_type": type(error).__name__, "detail": str(error)[:1500]})
-                self.progress.event(f"{version.name}: generation failed or rejected "
-                    f"({type(error).__name__}); retained artifacts at {version}")
+                dump(
+                    version / "validation.json",
+                    {"ok": False, "error_type": type(error).__name__, "detail": str(error)[:1500]},
+                )
+                self.progress.event(
+                    f"{version.name}: generation failed or rejected "
+                    f"({type(error).__name__}); retained artifacts at {version}"
+                )
                 raise
             return version
 
@@ -293,75 +420,130 @@ class Harness:
             checkpoints = CheckpointSet.model_validate(read(version / "checkpoints.json"))
             trials = []
             cwd = (self.task_path.parent / runner.cwd).resolve()
-            environment = {key: value for key, value in os.environ.items()
-                           if key not in {"OPENAI_API_KEY", "OPENROUTER_API_KEY", "HF_TOKEN",
-                                          "HUGGING_FACE_HUB_TOKEN", "GAP_CODEX_PROXY_KEY"}}
+            environment = {
+                key: value
+                for key, value in os.environ.items()
+                if key
+                not in {
+                    "OPENAI_API_KEY",
+                    "OPENROUTER_API_KEY",
+                    "HF_TOKEN",
+                    "HUGGING_FACE_HUB_TOKEN",
+                    "GAP_CODEX_PROXY_KEY",
+                }
+            }
             if "gap_libero.cli" in runner.command:
                 environment.setdefault("LIBERO_CONFIG_PATH", str(cwd / "cache/libero-config"))
             environment["PYTHONUNBUFFERED"] = "1"
-            self.progress.event(f"{version.name}: rehearsal started | "
-                                f"{len(self.task.seeds)} variations; one worker at a time")
+            self.progress.event(
+                f"{version.name}: rehearsal started | "
+                f"{len(self.task.seeds)} variations; one worker at a time"
+            )
             for index, seed in enumerate(self.task.seeds, start=1):
                 output = evaluations / f"seed-{seed}"
-                substitutions = {"graph": str(graph_path), "seed": str(seed),
-                                 "output": str(output), "root": str(cwd)}
+                substitutions = {
+                    "graph": str(graph_path),
+                    "seed": str(seed),
+                    "output": str(output),
+                    "root": str(cwd),
+                }
                 command = [argument.format_map(substitutions) for argument in runner.command]
                 dump(evaluations / f"seed-{seed}-command.json", {"argv": command})
                 process_ok = False
                 log = evaluations / f"seed-{seed}.log"
-                self.progress.event(f"{version.name}: variation {index}/{len(self.task.seeds)} "
-                    f"seed {seed} | timeout {runner.timeout_s}s | worker log {log}")
+                self.progress.event(
+                    f"{version.name}: variation {index}/{len(self.task.seeds)} "
+                    f"seed {seed} | timeout {runner.timeout_s}s | worker log {log}"
+                )
                 try:
                     # one child at a time with no shell and a fixed wall clock budget
                     with log.open("x", encoding="utf-8") as handle:
-                        process = subprocess.run(command, cwd=cwd, stdout=handle,
+                        process = subprocess.run(
+                            command,
+                            cwd=cwd,
+                            stdout=handle,
                             stdin=subprocess.DEVNULL,
-                            stderr=subprocess.STDOUT, timeout=runner.timeout_s, check=False,
-                            env=environment)
+                            stderr=subprocess.STDOUT,
+                            timeout=runner.timeout_s,
+                            check=False,
+                            env=environment,
+                        )
                     process_ok = process.returncode == 0
                     receipt_path = output / runner.receipt
-                    receipt = read(receipt_path) if receipt_path.is_file() else {
-                        "detail": "runner produced no receipt"}
+                    receipt = (
+                        read(receipt_path)
+                        if receipt_path.is_file()
+                        else {"detail": "runner produced no receipt"}
+                    )
                 except subprocess.TimeoutExpired:
                     receipt = {"detail": "runner exceeded the wall clock budget"}
                 except (OSError, ValueError) as error:
                     receipt = {"detail": f"runner failed {type(error).__name__}"}
                 if digest(graph_path) != graph_hash:
                     raise RuntimeError("candidate graph changed during rehearsal")
-                trial = build_trial_feedback(receipt, self.task, graph, checkpoints,
-                                               graph_hash, seed, process_ok=process_ok)
+                trial = build_trial_feedback(
+                    receipt, self.task, graph, checkpoints, graph_hash, seed, process_ok=process_ok
+                )
                 dump(evaluations / f"seed-{seed}-feedback.json", trial)
                 trials.append(trial)
-                self.progress.event(f"{version.name}: seed {seed} "
+                self.progress.event(
+                    f"{version.name}: seed {seed} "
                     f"{'passed' if trial['success'] else trial['failure_kind'] + ' failure'} | "
-                    f"running score {sum(item['success'] for item in trials)}/{len(trials)}")
+                    f"running score {sum(item['success'] for item in trials)}/{len(trials)}"
+                )
                 if not trial["evaluated"]:
-                    self.progress.event("worker evidence invalid or missing; stopping suite "
-                                        "without requesting a policy revision")
+                    self.progress.event(
+                        "worker evidence invalid or missing; stopping suite "
+                        "without requesting a policy revision"
+                    )
                     break
             feedback = aggregate_feedback(trials)
-            feedback["evaluation_complete"] = (feedback["evaluation_complete"]
-                                                and len(trials) == len(self.task.seeds))
-            feedback.update({"version": version.name, "graph_sha256": graph_hash,
-                             "task_sha256": self.task_sha256,
-                             "configured_trials": len(self.task.seeds),
-                             "evaluation_directory": str(evaluations)})
+            feedback["evaluation_complete"] = feedback["evaluation_complete"] and len(
+                trials
+            ) == len(self.task.seeds)
+            feedback.update(
+                {
+                    "version": version.name,
+                    "graph_sha256": graph_hash,
+                    "task_sha256": self.task_sha256,
+                    "configured_trials": len(self.task.seeds),
+                    "evaluation_directory": str(evaluations),
+                }
+            )
             dump(summary_dir / "feedback.json", feedback)
-            self.progress.event(f"{version.name}: rehearsal complete | "
+            self.progress.event(
+                f"{version.name}: rehearsal complete | "
                 f"{feedback['successes']}/{feedback['trials']} passed | "
-                f"feedback saved to {summary_dir / 'feedback.json'}")
-            scored = [(path.name, load_feedback(path)["successes"])
-                      for path in self.versions() if load_feedback(path) is not None
-                      and evaluation_complete(load_feedback(path))]
-            best_version, best_score = (max(scored, key=lambda item: item[1])
-                                        if scored else (None, None))
-            dump(summary_dir / "selection.json", {"best_version": best_version,
-                 "best_successes": best_score, "trials": len(trials),
-                 "current_is_best": best_version == version.name})
+                f"feedback saved to {summary_dir / 'feedback.json'}"
+            )
+            scored = [
+                (path.name, load_feedback(path)["successes"])
+                for path in self.versions()
+                if load_feedback(path) is not None and evaluation_complete(load_feedback(path))
+            ]
+            best_version, best_score = (
+                max(scored, key=lambda item: item[1]) if scored else (None, None)
+            )
+            dump(
+                summary_dir / "selection.json",
+                {
+                    "best_version": best_version,
+                    "best_successes": best_score,
+                    "trials": len(trials),
+                    "current_is_best": best_version == version.name,
+                },
+            )
             # publish a pointer only after fixed checks pass for every configured seed
             if feedback["evaluation_complete"] and all(trial["success"] for trial in trials):
-                dump(summary_dir / "accepted.json", {"graph": str(graph_path),
-                     "graph_sha256": graph_hash, "seeds": self.task.seeds})
-                self.progress.event(f"{version.name}: accepted after all configured "
-                                    "variations passed")
+                dump(
+                    summary_dir / "accepted.json",
+                    {
+                        "graph": str(graph_path),
+                        "graph_sha256": graph_hash,
+                        "seeds": self.task.seeds,
+                    },
+                )
+                self.progress.event(
+                    f"{version.name}: accepted after all configured variations passed"
+                )
             return feedback

@@ -142,14 +142,14 @@ def record_final(session, record, manifest, destination):
     substitutions = {"root": str(cwd), "graph": str(record["graph_path"]),
                      "seed": str(record["seed"]), "output": str(destination)}
     command = [argument.format_map(substitutions) for argument in runner["command"]]
-    if not any(mode in command for mode in ("compare-grocery", "run")):
+    if not any(mode in command for mode in ("compare-grocery", "run", "scenario")):
         raise ValueError("only bounded LIBERO graph run modes can be recorded")
     command.append("--record")
     environment = {key: value for key, value in os.environ.items()
                    if key not in {"OPENAI_API_KEY", "OPENROUTER_API_KEY", "HF_TOKEN",
                                   "HUGGING_FACE_HUB_TOKEN", "GAP_CODEX_PROXY_KEY"}}
     environment.setdefault("LIBERO_CONFIG_PATH", str(cwd / "cache/libero-config"))
-    local_vlm = "local-vlm" in command
+    local_vlm = "local-vlm" in command or "scenario" in command
     print("Recording one final LIBERO run keep Isaac and other model workers closed; "
           + ("keep local Qwen running in LM Studio" if local_vlm else "keep LM Studio closed"),
           flush=True)

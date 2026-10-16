@@ -75,8 +75,10 @@ def matrix_pose(matrix: Any) -> Pose:
 class LiberoBackend:
     def __init__(self, env: Any, *, camera: str = "agentview", motion_enabled: bool = False,
                  max_steps: int = 400, workspace: Any = None,
-                 forbidden_geom_pairs: Any = ()) -> None:
-        if type(max_steps) is not int or not 1 <= max_steps <= 1000:
+                 forbidden_geom_pairs: Any = (), episode_step_limit: int = 1000) -> None:
+        if episode_step_limit not in (1000, 4000):
+            raise ValueError("unsupported episode step limit")
+        if type(max_steps) is not int or not 1 <= max_steps <= episode_step_limit:
             raise ValueError("max_steps must be an integer from one to one thousand")
         self.workspace = np.asarray(workspace, dtype=float) if workspace is not None else None
         if self.workspace is not None and (
@@ -172,13 +174,22 @@ class LiberoBackend:
         target = self.target_object(name)
         return bool(self.env.env._check_grasp(self.env.robots[0].gripper, target.contact_geoms))
 
-    def target_in_gripper(self, name: str) -> np.ndarray:
+    def target_in_gripper(self, name: str, offset=None) -> np.ndarray:
         target = self.target_object(name)
         data = self.env.sim.data
         site = self.env.robots[0].gripper.important_sites["grip_site"]
         position = data.get_site_xpos(site)
         rotation = data.get_site_xmat(site)
-        return rotation.T @ (data.get_body_xpos(target.root_body) - position)
+        point = data.get_body_xpos(target.root_body)
+        if offset is not None:
+            point = point + data.get_body_xmat(target.root_body) @ vector(offset,3,"grasp offset")
+        return rotation.T @ (point - position)
+
+    def target_rotation_in_gripper(self, name):
+        target = self.target_object(name)
+        site = self.env.robots[0].gripper.important_sites["grip_site"]
+        data = self.env.sim.data
+        return data.get_site_xmat(site).T @ data.get_body_xmat(target.root_body)
 
     def capture(self, camera_utils: Any = None) -> ObservationBundle:
         if self.observation is None:

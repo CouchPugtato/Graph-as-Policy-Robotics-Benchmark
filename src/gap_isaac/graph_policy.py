@@ -109,7 +109,8 @@ class GraphPolicy:
             if kind == "router":
                 if not {"true", "false", "failed"} <= set(node.routes):
                     raise ValueError(
-                        f"router requires true false and failed routes: {node.node_id}")
+                        f"router requires true false and failed routes: {node.node_id}"
+                    )
             elif "succeeded" not in node.routes:
                 raise ValueError(f"node has no succeeded route: {node.node_id}")
             unknown = set(node.routes.values()) - known_targets
@@ -126,6 +127,12 @@ class GraphPolicy:
 
 
 SkillAction = Callable[[MutableMapping[str, Any]], NodeResult]
+
+
+class GraphExecutionBoundExceeded(RuntimeError):
+    def __init__(self, result: GraphExecutionResult, max_steps: int):
+        super().__init__(f"graph exceeded its {max_steps}-step execution bound")
+        self.result = result
 
 
 class GraphPolicyExecutor:
@@ -191,4 +198,9 @@ class GraphPolicyExecutor:
                     state=dict(state),
                 )
             current = next_node
-        raise RuntimeError(f"graph exceeded its {self._max_steps}-step execution bound")
+        raise GraphExecutionBoundExceeded(
+            GraphExecutionResult(
+                self._policy.graph_id, current, "failed", tuple(trace), dict(state)
+            ),
+            self._max_steps,
+        )

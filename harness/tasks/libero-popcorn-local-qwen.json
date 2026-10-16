@@ -1,0 +1,522 @@
+{
+  "schema_version": 1,
+  "task_id": "libero-popcorn-local-qwen",
+  "instruction": "Move the pan by its blue handle onto the purple stove burner. Then physically grasp and turn the green knob on wait through the bounded heating abstraction and turn it off. Use select_knob_on and select_knob_off to change the active target before observing it. Turn actions require a verified knob grasp. Release and retract after each operation. Finish with check_popcorn_complete. This is a physical proxy with no thermal or food simulation. All object geometry must come from local Qwen selected RGB-D evidence.",
+  "skills": [
+    {
+      "name": "perceiving-proxy-objects",
+      "shared_tools": true,
+      "description": "perceiving proxy objects",
+      "instructions": "Use only deployed aliases. Respect physical guards and local vision call limits. Observe detect identify segment estimate and check the active target before motion. A destination also needs identification and geometry before transport. No simulator poses no teleports no cloud fallback and no arbitrary code.",
+      "actions": [
+        {
+          "name": "check_container",
+          "description": "check container",
+          "requires": [
+            "estimate_container"
+          ],
+          "kind": "router",
+          "outcomes": [
+            "true",
+            "false",
+            "failed"
+          ]
+        },
+        {
+          "name": "check_target",
+          "description": "check target",
+          "requires": [
+            "estimate_target"
+          ],
+          "kind": "router",
+          "outcomes": [
+            "true",
+            "false",
+            "failed"
+          ]
+        },
+        {
+          "name": "detect_container",
+          "description": "detect container",
+          "requires": [
+            "observe_scene"
+          ],
+          "kind": "tool",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ]
+        },
+        {
+          "name": "detect_target",
+          "description": "detect target",
+          "requires": [
+            "observe_scene"
+          ],
+          "kind": "tool",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ]
+        },
+        {
+          "name": "estimate_container",
+          "description": "estimate container",
+          "requires": [
+            "segment_container"
+          ],
+          "kind": "tool",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ]
+        },
+        {
+          "name": "estimate_target",
+          "description": "estimate target",
+          "requires": [
+            "segment_target"
+          ],
+          "kind": "tool",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ]
+        },
+        {
+          "name": "identify_container",
+          "description": "identify container",
+          "requires": [
+            "detect_container"
+          ],
+          "kind": "tool",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ]
+        },
+        {
+          "name": "identify_target",
+          "description": "identify target",
+          "requires": [
+            "detect_target"
+          ],
+          "kind": "tool",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ]
+        },
+        {
+          "name": "observe_scene",
+          "description": "observe scene",
+          "requires": [],
+          "kind": "tool",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ]
+        },
+        {
+          "name": "segment_container",
+          "description": "segment container",
+          "requires": [
+            "identify_container"
+          ],
+          "kind": "tool",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ]
+        },
+        {
+          "name": "segment_target",
+          "description": "segment target",
+          "requires": [
+            "identify_target"
+          ],
+          "kind": "tool",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "managing-task-state",
+      "shared_tools": true,
+      "description": "managing task state",
+      "instructions": "Use only deployed aliases. Respect physical guards and local vision call limits. Observe detect identify segment estimate and check the active target before motion. A destination also needs identification and geometry before transport. No simulator poses no teleports no cloud fallback and no arbitrary code.",
+      "actions": [
+        {
+          "name": "check_popcorn_complete",
+          "description": "check popcorn complete",
+          "requires": [
+            "turn_stove_off",
+            "wait_heating"
+          ],
+          "kind": "router",
+          "outcomes": [
+            "true",
+            "false",
+            "failed"
+          ]
+        },
+        {
+          "name": "select_knob_off",
+          "description": "select knob off",
+          "requires": [
+            "wait_heating"
+          ],
+          "kind": "tool",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ]
+        },
+        {
+          "name": "select_knob_on",
+          "description": "select knob on",
+          "requires": [
+            "check_placement"
+          ],
+          "kind": "tool",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "libero-physical-actions",
+      "shared_tools": false,
+      "description": "libero physical actions",
+      "instructions": "Use only deployed aliases. Respect physical guards and local vision call limits. Observe detect identify segment estimate and check the active target before motion. A destination also needs identification and geometry before transport. No simulator poses no teleports no cloud fallback and no arbitrary code.",
+      "actions": [
+        {
+          "name": "align_over_target",
+          "description": "align over target",
+          "requires": [
+            "check_target",
+            "open_gripper"
+          ],
+          "kind": "tool",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ]
+        },
+        {
+          "name": "check_grasp",
+          "description": "check grasp",
+          "requires": [
+            "close_gripper"
+          ],
+          "kind": "router",
+          "outcomes": [
+            "true",
+            "false",
+            "failed"
+          ]
+        },
+        {
+          "name": "check_placement",
+          "description": "check placement",
+          "requires": [
+            "settle_release"
+          ],
+          "kind": "router",
+          "outcomes": [
+            "true",
+            "false",
+            "failed"
+          ]
+        },
+        {
+          "name": "close_gripper",
+          "description": "close gripper",
+          "requires": [
+            "descend_to_grasp"
+          ],
+          "kind": "tool",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ]
+        },
+        {
+          "name": "descend_to_grasp",
+          "description": "descend to grasp",
+          "requires": [
+            "align_over_target"
+          ],
+          "kind": "tool",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ]
+        },
+        {
+          "name": "lift_grasped",
+          "description": "lift grasped",
+          "requires": [
+            "check_grasp"
+          ],
+          "kind": "tool",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ]
+        },
+        {
+          "name": "move_over_basket",
+          "description": "move over basket",
+          "requires": [
+            "lift_grasped",
+            "check_container"
+          ],
+          "kind": "tool",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ]
+        },
+        {
+          "name": "open_gripper",
+          "description": "open gripper",
+          "requires": [
+            "check_target"
+          ],
+          "kind": "tool",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ]
+        },
+        {
+          "name": "position_for_release",
+          "description": "position for release",
+          "requires": [
+            "move_over_basket"
+          ],
+          "kind": "tool",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ]
+        },
+        {
+          "name": "release_object",
+          "description": "release object",
+          "requires": [
+            "close_gripper"
+          ],
+          "kind": "tool",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ]
+        },
+        {
+          "name": "retract_from_basket",
+          "description": "retract from basket",
+          "requires": [
+            "release_object"
+          ],
+          "kind": "tool",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ]
+        },
+        {
+          "name": "return_ready",
+          "description": "return ready",
+          "requires": [
+            "retract_from_basket"
+          ],
+          "kind": "tool",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ]
+        },
+        {
+          "name": "settle_release",
+          "description": "settle release",
+          "requires": [
+            "retract_from_basket"
+          ],
+          "kind": "tool",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ]
+        },
+        {
+          "name": "turn_stove_off",
+          "description": "turn stove off",
+          "requires": [
+            "check_grasp",
+            "wait_heating"
+          ],
+          "kind": "tool",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ]
+        },
+        {
+          "name": "turn_stove_on",
+          "description": "turn stove on",
+          "requires": [
+            "check_grasp"
+          ],
+          "kind": "tool",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ]
+        },
+        {
+          "name": "wait_heating",
+          "description": "wait heating",
+          "requires": [
+            "turn_stove_on",
+            "release_object",
+            "return_ready"
+          ],
+          "kind": "tool",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ]
+        }
+      ]
+    }
+  ],
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+  ],
+  "checkpoint_evidence": [
+    "evaluation.task_success",
+    "evaluation.checkpoints.target_grasped",
+    "evaluation.checkpoints.target_lifted",
+    "evaluation.checkpoints.target_contained",
+    "evaluation.checkpoints.target_released",
+    "evaluation.scenario_evidence.pan_placed",
+    "evaluation.scenario_evidence.stove_turned_on",
+    "evaluation.scenario_evidence.heating_wait_completed",
+    "evaluation.scenario_evidence.stove_turned_off"
+  ],
+  "required_true": [
+    "evaluation.task_success"
+  ],
+  "required_actions": [
+    "align_over_target",
+    "check_container",
+    "check_grasp",
+    "check_placement",
+    "check_popcorn_complete",
+    "check_target",
+    "close_gripper",
+    "descend_to_grasp",
+    "detect_container",
+    "detect_target",
+    "estimate_container",
+    "estimate_target",
+    "identify_container",
+    "identify_target",
+    "lift_grasped",
+    "move_over_basket",
+    "observe_scene",
+    "open_gripper",
+    "position_for_release",
+    "release_object",
+    "retract_from_basket",
+    "return_ready",
+    "segment_container",
+    "segment_target",
+    "select_knob_off",
+    "select_knob_on",
+    "settle_release",
+    "turn_stove_off",
+    "turn_stove_on",
+    "wait_heating"
+  ],
+  "required_executed_actions": [
+    "align_over_target",
+    "check_container",
+    "check_grasp",
+    "check_placement",
+    "check_popcorn_complete",
+    "check_target",
+    "close_gripper",
+    "descend_to_grasp",
+    "detect_container",
+    "detect_target",
+    "estimate_container",
+    "estimate_target",
+    "identify_container",
+    "identify_target",
+    "lift_grasped",
+    "move_over_basket",
+    "observe_scene",
+    "open_gripper",
+    "position_for_release",
+    "release_object",
+    "retract_from_basket",
+    "return_ready",
+    "segment_container",
+    "segment_target",
+    "select_knob_off",
+    "select_knob_on",
+    "settle_release",
+    "turn_stove_off",
+    "turn_stove_on",
+    "wait_heating"
+  ],
+  "max_trace_steps": 160,
+  "runner": {
+    "command": [
+      "{root}/.venv-libero/Scripts/python.exe",
+      "-m",
+      "gap_libero.cli",
+      "scenario",
+      "--scenario",
+      "popcorn",
+      "--variation",
+      "mixed",
+      "--seed",
+      "{seed}",
+      "--graph",
+      "{graph}",
+      "--output",
+      "{output}",
+      "--enable-motion"
+    ],
+    "cwd": "../..",
+    "timeout_s": 300,
+    "receipt": "receipt.json"
+  },
+  "limitations": [
+    "Custom LIBERO adaptation not the official paper benchmark",
+    "Local Qwen on loopback with at most eight inference calls per episode",
+    "Known proxy shape dimensions support geometry fitting without simulator pose fallback",
+    "At most four thousand controller steps and one worker per evaluation",
+    "Packing uses two objects per episode with varying item identities",
+    "Packing uses a declared 0.32 by 0.26 by 0.15 meter bin with unchanged wall clearance",
+    "Popcorn uses physical proxy pan and knob with a timed heating abstraction"
+  ]
+}

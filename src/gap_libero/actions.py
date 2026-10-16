@@ -48,12 +48,16 @@ class RunPlan(BaseModel):
     workspace_m: tuple[tuple[float, float, float], tuple[float, float, float]]
     max_episode_steps: int = Field(default=400, ge=1, le=1000, strict=True)
     maximum_slip_m: float = Field(default=0.015, gt=0, le=0.02)
+    grasp_reference_offset_m: tuple[float,float,float] = (0,0,0)
+    maximum_grasp_rotation_rad: float | None = Field(default=None,gt=0,le=.5)
     forbidden_geom_pairs: list[tuple[str, str]] = Field(default_factory=list)
     actions: dict[str, ActionSpec]
 
     @model_validator(mode="after")
     def check_workspace(self) -> RunPlan:
         low, high = np.asarray(self.workspace_m)
+        if np.linalg.norm(self.grasp_reference_offset_m) > .25:
+            raise ValueError("grasp reference offset exceeds the object model budget")
         if not (low < high).all():
             raise ValueError("workspace corners must be ordered")
         for action in self.actions.values():
@@ -71,6 +75,7 @@ class LiberoGraphActions:
         self.backend, self.plan = backend, plan
         self.gripper = -1.0
         self.hold_reference: np.ndarray | None = None
+        self.hold_rotation = None
         self.missing_contact_frames = 0
         backend.target_object(plan.target_object)
         controller = backend.env.robots[0].controller
@@ -106,6 +111,11 @@ class LiberoGraphActions:
         return (np.zeros(3) if norm < 1e-9 else
                 xyz / norm * (2 * np.arctan2(norm, scalar)))
 
+    def grasp_point(self):
+        offset = self.plan.grasp_reference_offset_m
+        return (self.backend.target_in_gripper(self.plan.target_object,offset)
+                if any(offset) else self.backend.target_in_gripper(self.plan.target_object))
+
     def check_hold(self) -> None:
         if self.hold_reference is None:
             raise RuntimeError("no verified grasp has been established")
@@ -114,9 +124,14 @@ class LiberoGraphActions:
         if self.missing_contact_frames >= 3:
             raise RuntimeError("target contact was lost")
         slip = np.linalg.norm(
-            self.backend.target_in_gripper(self.plan.target_object) - self.hold_reference)
+            self.grasp_point() - self.hold_reference)
         if not np.isfinite(slip) or slip > self.plan.maximum_slip_m:
             raise RuntimeError(f"target slipped relative to the gripper: {slip:.6f} m")
+        if self.hold_rotation is not None:
+            current = self.backend.target_rotation_in_gripper(self.plan.target_object)
+            angle = float(np.arccos(np.clip((np.trace(self.hold_rotation.T @ current)-1)/2,-1,1)))
+            if not np.isfinite(angle) or angle > self.plan.maximum_grasp_rotation_rad:
+                raise RuntimeError(f"target rotated relative to the gripper: {angle:.6f} rad")
 
     def command(self, translation: Any = None, *, require_grasp: bool = False,
                 rotation: Any = None) -> None:
@@ -178,8 +193,10 @@ class LiberoGraphActions:
                     stable_contacts = (stable_contacts + 1
                                        if self.backend.grasped(self.plan.target_object) else 0)
                     if stable_contacts >= 3:
-                        self.hold_reference = self.backend.target_in_gripper(
-                            self.plan.target_object)
+                        self.hold_reference = self.grasp_point()
+                        if self.plan.maximum_grasp_rotation_rad is not None:
+                            self.hold_rotation = self.backend.target_rotation_in_gripper(
+                                self.plan.target_object).copy()
                         self.missing_contact_frames = 0
                         for _ in range(spec.preload_steps):
                             self.command(require_grasp=True)
@@ -187,6 +204,7 @@ class LiberoGraphActions:
             if spec.kind == "close":
                 return NodeResult("failed", "grasp contact not verified before timeout")
             self.hold_reference = None
+            self.hold_rotation = None
             outcome = "failed" if self.backend.grasped(self.plan.target_object) else "succeeded"
             return NodeResult(outcome, "target release contact check")
         for _ in range(spec.max_steps):

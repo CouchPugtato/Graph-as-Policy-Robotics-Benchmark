@@ -225,6 +225,126 @@ hashes and phase joint positions so control changes remain distinguishable from
 generated graph revisions. Compare graph versions with identical binding hashes
 when attributing an improvement to generation alone.
 
+## Additional local Qwen scenarios
+
+Keep Qwen loaded in LM Studio on port 1234. Close Isaac and unrelated model
+workers. These commands execute one bounded, explicitly hand-authored reference
+graph each; they do not call the graph generator or a hosted model.
+
+```powershell
+.\scripts\windows\run-libero.ps1 -Mode fulfillment -Seed 0 -EnableMotion
+.\scripts\windows\run-libero.ps1 -Mode packing -Seed 1 -EnableMotion
+.\scripts\windows\run-libero.ps1 -Mode popcorn -Seed 0 -EnableMotion
+```
+
+Omit `-EnableMotion` for scene capture only. Add `-Record` to save simulation
+frames for export. Every invocation creates a separate directory under
+`results/libero`, including the graph, receipt, initial and final images,
+perception evidence, plans and per-action diagnostics. Existing runs are not
+overwritten. Receipts distinguish reference graphs from model-generated graphs
+through the saved graph metadata and include implementation hashes.
+
+Fulfillment varies the requested grocery shape, item positions, basket positions
+and item permutation. `-Variation` accepts `xy`, `basket-swap`, `permutation` or
+`mixed`. Packing requests two groceries, verifies each item independently and
+requires both to remain contained and released at the final check. Its declared
+bin is 0.32 by 0.26 by 0.15 meters, allowing two groceries and gripper clearance;
+the original single-item grocery basket is unchanged. Popcorn moves
+a dynamic pan by its handle onto a burner, physically turns a hinged knob on,
+waits forty controller steps and turns it off. Popcorn seeds vary the initial pan
+position and heading; its variation selector does not add grocery permutations.
+
+These are custom proxy tasks, not official paper or LIBERO benchmark replicas.
+Popcorn does not simulate food, heat or cooking. Shape dimensions are declared
+priors; positions and headings for planning come from local Qwen selected RGB-D
+masks, never evaluator poses. The new task evaluator uses full 3D box and cylinder
+support extents, including tilt, with the existing wall clearance and vertical
+tolerance. The original grocery evaluator is unchanged. Packing checks that all
+finger contacts clear before retraction and holds the measured aperture using
+actuator commands rather than changing joint state.
+
+Each new episode permits at most eight local inference requests, four thousand
+controller steps and 160 graph visits. The PowerShell wrapper imposes a 180 second
+wall clock limit. Workers run one at a time; there is no automatic retry or cloud
+fallback. A successful reference run is an integration check, not evidence that
+a generated graph or every seed succeeds.
+
+The generator task catalogs are separate files under `harness/tasks` named
+`libero-fulfillment-local-qwen.json`, `libero-packing-local-qwen.json` and
+`libero-popcorn-local-qwen.json`. They expose perception as shared tools for
+physical-action subgraphs and support seeds zero through nine. Generate and
+evaluate one task at a time after reviewing reference results. Static checks
+enforce action order and deployed capabilities. Stateful loop actions are also
+required to complete in the actual execution trace; a zero-item shortcut cannot
+claim success. Normal item-loop exhaustion is not reported as a failed decision.
+Reaching a graph visit limit produces bounded policy feedback rather than losing
+the trace and blocking refinement as a runner error.
+
+### Generate and refine a policy
+
+A perfect reference score is not required before generating a first policy.
+Readiness means the catalog compiles, physical operations work in integration,
+and all configured trials produce trustworthy feedback. Failed trials remain
+visible and do not count as success. Reference policies are explicitly marked
+hand authored, not model generated.
+
+With the existing Codex proxy and local Qwen server running, start one generation
+and evaluation cycle with either `fulfillment`, `packing` or `popcorn`.
+
+```powershell
+.\.venv\Scripts\python.exe -m gap_harness.cli iterate --scenario packing --live --execute --rounds 1
+```
+
+This creates a new versioned session, generates the hierarchy through the existing
+orchestrator, skill and checkpoint agents, and evaluates all ten seeds serially.
+Model allowance is consumed by generation, not by the reference validator. Keep
+the printed session path to resume with `--session` for feedback-based refinement.
+The configured model remains `gpt-6.1-sol` with medium reasoning. The orchestrator
+still chooses the number and boundaries of physical-action subgraphs; shared
+vision tools stay inside those subgraphs.
+
+For generation alone, use `generate --scenario packing --live`. For a metadata
+and catalog check without inference or simulation, use `check --scenario packing`.
+
+The no-generation reference validator exercises the same compiler, subprocess
+runner, trace binding and feedback builder as model-generated graphs.
+
+```powershell
+.\.venv\Scripts\python.exe -m gap_libero.scenario_validation
+```
+
+Use `--scenario packing` for one scenario, `--seeds 0 1` for an explicit subset,
+or `--check-only` to validate compilation without starting models or simulation.
+Every run has a new output directory under `results/scenario-validation`, with
+immutable per-seed receipts, feedback and a readiness summary. A check-only run
+does not claim that physical execution has been validated.
+
+### Reference validation status
+
+The latest complete local Qwen reference sweeps produced these integration
+baselines. Each sweep ran seeds 0 through 9 with zero runner infrastructure
+failures. These are hand-authored reference results, not generated policy scores.
+
+| Scenario | Reference successes | Feedback directory under results/scenario-validation |
+| --- | --- | --- |
+| Fulfillment | 9 of 10 | 20261016T024559Z-13759e44/fulfillment/v0001 |
+| Packing | 3 of 10 | 20261016T025638Z-38809e77/packing/v0001 |
+| Popcorn | 10 of 10 | 20261016T024559Z-13759e44/popcorn/v0001 |
+
+Packing remains physically less reliable. Its failures include release settling,
+grasp stability and incomplete image geometry; do not attribute those failures
+automatically to the generated hierarchy or promise that graph refinement alone
+will repair them. The original grocery graph also passed a seed zero regression
+with its original evaluator.
+
+Reference results are saved per invocation rather than being treated as a fixed
+benchmark score. Packing receipts include every requested item's final evidence
+so a successful earlier placement cannot mask a later failure. Popcorn exposes
+persistent verified pan-placement, stove-on, heating-wait and stove-off events for
+the checkpoint agent; a later stove-off action does not erase the earlier on event.
+Compare scores only under the same scene and implementation hashes. Do not
+attribute improvements caused by controller or scene changes to graph generation.
+
 ## Upstream interfaces
 
 - [LIBERO environment wrapper](https://github.com/Lifelong-Robot-Learning/LIBERO/blob/8f1084e3132a39270c3a13ebe37270a43ece2a01/libero/libero/envs/env_wrapper.py)

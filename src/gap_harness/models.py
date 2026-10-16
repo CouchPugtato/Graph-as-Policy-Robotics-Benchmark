@@ -105,6 +105,8 @@ class Task(StrictModel):
     checkpoint_evidence: list[str] = Field(min_length=1)
     required_true: list[str] = Field(min_length=1)
     required_actions: list[str] = Field(default_factory=list)
+    required_executed_actions: list[str] = Field(default_factory=list)
+    max_trace_steps: int = Field(default=64, ge=1, le=160)
     runner: RunnerDefinition | None = None
     limitations: list[str] = Field(default_factory=list)
 
@@ -116,7 +118,7 @@ class Task(StrictModel):
         if any(seed < 0 for seed in self.seeds):
             raise ValueError("seeds must be nonnegative")
         actions = [action.name for skill in self.skills for action in skill.actions]
-        if not set(self.required_actions) <= set(actions):
+        if not set(self.required_actions + self.required_executed_actions) <= set(actions):
             raise ValueError("required actions must be deployed")
         if not set(self.required_true) <= set(self.checkpoint_evidence):
             raise ValueError("required criteria must be declared evidence")

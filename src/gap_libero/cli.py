@@ -55,6 +55,16 @@ def check() -> dict:
 
 
 def execute(args: argparse.Namespace) -> dict:
+    if args.mode == "scenario":
+        from gap_libero.scenario_catalog import reference_graph
+        from gap_libero.scenario_runner import run
+
+        graph = args.graph
+        if graph is None:
+            graph = args.output / "reference-graph.json"
+            graph.write_text(json.dumps(reference_graph(args.scenario),indent=2),encoding="utf-8")
+        return run(args.output,graph,args.scenario,args.seed,args.variation,
+                   enable_motion=args.enable_motion,record=args.record)
     if args.mode == "compare-grocery":
         from gap_libero.grocery_comparison import DEFAULT_GRAPH, compare_grocery
 
@@ -126,7 +136,14 @@ def main() -> None:
     grocery.add_argument("--enable-motion", action="store_true")
     grocery.add_argument("--record", action="store_true")
     grocery.add_argument("--perception-backend", choices=("rgbd-color", "local-vlm"))
-    for command in (capture, run, grocery):
+    scenario = commands.add_parser("scenario")
+    scenario.add_argument("--scenario",choices=("fulfillment","packing","popcorn"),required=True)
+    scenario.add_argument("--variation",choices=("xy","basket-swap","permutation","mixed"),default="mixed")
+    scenario.add_argument("--seed",type=int,choices=range(10),default=0)
+    scenario.add_argument("--graph",type=Path)
+    scenario.add_argument("--enable-motion",action="store_true")
+    scenario.add_argument("--record",action="store_true")
+    for command in (capture, run, grocery, scenario):
         command.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     if args.mode == "check":

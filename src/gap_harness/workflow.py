@@ -168,7 +168,7 @@ def compile_workflow(topology: Topology, subgraphs: list[Subgraph], task: Task,
     if len(nodes) > 64:
         raise ValueError("workflow exceeds the existing executor node budget")
     deployed = {node["action"] for node in nodes}
-    if not set(task.required_actions) <= deployed:
+    if not set(task.required_actions + task.required_executed_actions) <= deployed:
         raise ValueError("workflow omitted required task actions")
     if checkpoints is not None:
         counts = {name: 0 for name in specs}
