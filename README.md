@@ -51,6 +51,49 @@ See [the harness guide](harness/README.md) for API opt in, version storage, rehe
 commands, feedback design and other task manifests. The supplied executable adapter
 uses the custom LIBERO grocery task; other tasks require deployed bindings and evaluation.
 
+## Upstream benchmark environments
+
+Official environments are separate from the four custom proxy scenarios. They use
+their original BDDL goals and saved initial states, not the custom grocery generator.
+Their receipts and captures live under `results/benchmarks/<benchmark>/`; existing
+custom harness sessions and visualizations are unchanged.
+
+These selections live in `gap_libero.benchmarks` and reuse the existing LIBERO
+configuration writer, capture and graph runner, backend, bounded actions, goal
+verification, and recording. They are also accessible through
+`python -m gap_libero.cli benchmark list` without a separate runtime implementation.
+
+The implementation stays in the central `gap_libero` modules. The small `benchmarks/`
+folder only handles upstream source selection and preparation; capture, graph execution,
+bounded controls, perception, evaluation, and recording reuse the existing code.
+
+```powershell
+.\scripts\run-benchmark.ps1 -Prepare -Mode list
+.\scripts\run-benchmark.ps1
+.\scripts\run-benchmark.ps1 -Benchmark libero-pro-object -Prepare
+.\scripts\run-benchmark.ps1 -Benchmark libero-pro-swap -Prepare
+```
+
+Other original suites are `libero-spatial`, `libero-goal`, `libero-10`, and `libero-90`.
+`-TaskId` and `-InitStateId` select official tasks and stored states. A seed does not
+replace the initial-state index. Captures do not count as successful evaluations.
+The Pro `object` selection changes object appearance or scale; `swap` changes positions.
+These names are kept explicit rather than assuming the paper's `object_swap` label
+is an identical upstream suite.
+
+LIBERO-Pro uses a pinned separate checkout and configuration with the existing
+runtime dependencies. Preparation downloads evaluation files from the official
+Hugging Face dataset but no policy weights or demonstrations. No installed LIBERO
+package or custom configuration is replaced.
+
+Existing custom harness manifests do not automatically support these environments.
+Native graph execution requires a matching bounded `RunPlan` and explicit motion opt in
+through `-Mode run -Graph ... -Plan ... -EnableMotion`. The benchmark goal predicate
+determines success. Task-specific perception and action bindings must be implemented
+before automatic generation and refinement can evaluate these tasks. The paper's
+additional grocery, packing, and popcorn environments are not relabeled as official
+assets here; the existing approximations remain custom scenarios.
+
 ## References
 
 1. K. Chen, S. Xie, L. Fu, J. Yu, W. Pacini, S. Bajamahal, H. Kim, J. Drake,

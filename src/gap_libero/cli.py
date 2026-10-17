@@ -15,20 +15,26 @@ from pathlib import Path
 import yaml
 
 
-def configure(source: Path, output: Path) -> dict:
+def configure(source: Path, output: Path, *, data_root: Path | None = None,
+              allow_existing: bool = False) -> dict:
     root = source.resolve() / "libero" / "libero"
-    paths = {"benchmark_root": root, "bddl_files": root / "bddl_files",
-             "init_states": root / "init_files", "assets": root / "assets",
+    data = data_root.resolve() if data_root is not None else root
+    paths = {"benchmark_root": root, "bddl_files": data / "bddl_files",
+             "init_states": data / "init_files", "assets": root / "assets",
              "datasets": source.resolve() / "datasets"}
     for name in ("benchmark_root", "bddl_files", "init_states", "assets"):
         if not paths[name].is_dir():
             raise ValueError(f"LIBERO source is missing {name}")
     output.mkdir(parents=True, exist_ok=True)
     destination = output / "config.yaml"
+    content = yaml.safe_dump({key: str(value) for key, value in paths.items()})
     if destination.exists():
-        raise FileExistsError("existing LIBERO configuration was not overwritten")
-    destination.write_text(yaml.safe_dump({key: str(value) for key, value in paths.items()}),
-                           encoding="utf-8")
+        if not allow_existing:
+            raise FileExistsError("existing LIBERO configuration was not overwritten")
+        if destination.read_text(encoding="utf-8") != content:
+            raise ValueError("existing LIBERO configuration differs and was not overwritten")
+    else:
+        destination.write_text(content, encoding="utf-8")
     return {"ok": True, "config": str(destination.resolve()), "simulator_started": False}
 
 
@@ -80,6 +86,10 @@ def execute(args: argparse.Namespace) -> dict:
         if not args.enable_motion:
             raise ValueError("run requires --enable-motion")
         plan = RunPlan.model_validate_json(args.plan.read_text(encoding="utf-8"))
+        expected = getattr(args, "expected_selection", None)
+        if expected is not None and (
+                plan.suite, plan.task_id, plan.init_state_id, plan.seed) != expected:
+            raise ValueError("plan selection differs from the selected upstream environment")
         policy = GraphPolicy.from_json(args.graph)
         missing = {node.action for node in policy.nodes.values()} - set(plan.actions)
         if missing:
@@ -92,6 +102,8 @@ def execute(args: argparse.Namespace) -> dict:
         backend, metadata = create_backend(suite=args.suite, task_id=args.task_id,
                                            init_state_id=args.init_state_id, seed=args.seed)
     try:
+        if args.mode == "run" and getattr(args, "capture_initial_observation", False):
+            backend.capture().save(args.output / "observation")
         if args.mode == "run" and args.record:
             backend.start_recording(args.output / "recording")
         if args.mode == "capture":
@@ -118,6 +130,8 @@ def main() -> None:
     commands.add_parser("check")
     commands.add_parser("preflight")
     commands.add_parser("prepare-runtime")
+    benchmark = commands.add_parser("benchmark", help="select an official upstream environment")
+    benchmark.add_argument("arguments", nargs=argparse.REMAINDER)
     config = commands.add_parser("configure")
     config.add_argument("--source", type=Path, required=True)
     config.add_argument("--output", type=Path, required=True)
@@ -147,6 +161,11 @@ def main() -> None:
     for command in (capture, run, grocery, scenario):
         command.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
+    if args.mode == "benchmark":
+        from gap_libero.benchmarks.cli import main as benchmark_main
+
+        benchmark_main(args.arguments)
+        return
     if args.mode == "check":
         result = check()
     elif args.mode == "preflight":

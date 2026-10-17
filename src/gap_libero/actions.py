@@ -40,7 +40,7 @@ class RunPlan(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     schema_version: Literal[1] = 1
     suite: Literal["libero_spatial", "libero_object", "libero_goal", "libero_10", "libero_90",
-                   "grocery_ground"]
+                   "libero_object_object", "libero_object_swap", "grocery_ground"]
     task_id: int = Field(ge=0, strict=True)
     init_state_id: int = Field(default=0, ge=0, strict=True)
     seed: int = Field(default=0, ge=0, strict=True)

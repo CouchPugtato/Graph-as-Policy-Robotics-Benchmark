@@ -22,6 +22,7 @@ from gap_isaac.protocol import (
 
 LIBERO_REVISION = "8f1084e3132a39270c3a13ebe37270a43ece2a01"
 SUITES = ("libero_spatial", "libero_object", "libero_goal", "libero_10", "libero_90")
+PRO_SUITES = ("libero_object_object", "libero_object_swap")
 
 
 def vector(value: Any, length: int, name: str) -> np.ndarray:
@@ -259,7 +260,7 @@ class LiberoBackend:
 
 def create_backend(*, suite: str = "libero_spatial", task_id: int = 0, init_state_id: int = 0,
                    seed: int = 0, **settings: Any) -> tuple[LiberoBackend, dict[str, Any]]:
-    if suite not in SUITES or min(task_id, init_state_id, seed) < 0:
+    if suite not in SUITES + PRO_SUITES or min(task_id, init_state_id, seed) < 0:
         raise ValueError("invalid suite or negative task state or seed")
     from gap_libero.runtime_config import prepare_runtime_config
 
