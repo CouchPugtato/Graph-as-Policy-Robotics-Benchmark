@@ -4,7 +4,7 @@
   "subtitle": "Single-object grocery pick-and-place across ten deterministic variations",
   "graph": "policy.json",
   "scene_image": "assets/scene.png",
-  "seconds_per_iteration": 2,
+  "seconds_per_iteration": 5,
   "iterations": [
     {"iteration": 1, "successes": 4, "trials": 10},
     {"iteration": 2, "successes": 4, "trials": 10},

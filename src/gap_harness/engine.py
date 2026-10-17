@@ -20,6 +20,9 @@ class CandidateRejected(ValueError):
     pass
 
 
+MIN_GENERATED_SUBGRAPHS = 3
+
+
 def validate_candidate(function, *args, **kwargs):
     try:
         return function(*args, **kwargs)
@@ -42,6 +45,10 @@ COORDINATOR = (
     + """
 You are the orchestrator or behavior agent. Choose the number of subgraphs and
 the skill for each from the task catalog. Define only topology and contracts
+Use at least three subgraphs and no more than the supplied max_subgraphs.
+Separate meaningful physical objectives rather than padding the count with
+sensing computation or verification only subgraphs. Reusing a physical skill
+across distinct objectives is allowed. Choose the objectives yourself.
 not internal nodes. Each subgraph has success exits and a distinct on_error exit
 with outer routes for all exits. Include success and failure terminals.
 Choose subgraph count boundaries and names from the task and deployed capabilities
@@ -232,6 +239,8 @@ class Harness:
             raise
 
     def generate(self):
+        if self.max_subgraphs < MIN_GENERATED_SUBGRAPHS:
+            raise ValueError("generation requires a maximum of at least three subgraphs")
         self.prepare()
         with session_lock(self.session):
             versions = self.versions()
@@ -293,6 +302,7 @@ class Harness:
                 {
                     "parent": versions[-1].name if versions else None,
                     "task_sha256": self.task_sha256,
+                    "generation_constraints": {"min_subgraphs": MIN_GENERATED_SUBGRAPHS},
                     "model": getattr(self.provider, "model", "test-provider"),
                     "api": (
                         self.provider.public_settings()
@@ -308,13 +318,17 @@ class Harness:
                     )
                 context = {
                     "task": self.task.model_dump(exclude={"runner"}),
+                    "min_subgraphs": MIN_GENERATED_SUBGRAPHS,
                     "max_subgraphs": self.max_subgraphs,
                     "previous": previous,
                 }
                 topology = self.call(version, "coordinator", COORDINATOR, context, Topology)
                 dump(version / "topology.json", topology.model_dump())
                 self.progress.event(f"{version.name}: validating orchestrator topology")
-                validate_candidate(validate_topology, topology, self.task, self.max_subgraphs)
+                validate_candidate(
+                    validate_topology, topology, self.task, self.max_subgraphs,
+                    min_subgraphs=MIN_GENERATED_SUBGRAPHS,
+                )
                 self.progress.event(
                     f"{version.name}: topology valid; orchestrator assigned "
                     f"{len(topology.subgraphs)} skill agent(s)"
@@ -349,6 +363,13 @@ class Harness:
                         Subgraph,
                     )
                     dump(version / f"subgraph-{spec.name}.json", result.model_dump())
+                    physical_actions = {
+                        action.name for action in skill.actions if action.kind != "router"
+                    }
+                    if not physical_actions.intersection(node.action for node in result.nodes):
+                        raise CandidateRejected(
+                            "each generated subgraph must execute an assigned physical action"
+                        )
                     generated.append(result)
                     self.progress.event(
                         f"{version.name}: saved {spec.name} with {len(result.nodes)} node(s)"
@@ -398,6 +419,7 @@ class Harness:
                         "ok": True,
                         "graph_sha256": digest(version / "graph.json"),
                         "skill_agent_count": len(generated),
+                        "min_subgraphs": MIN_GENERATED_SUBGRAPHS,
                         "execution_validated": False,
                     },
                 )

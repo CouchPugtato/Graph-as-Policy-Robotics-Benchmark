@@ -83,6 +83,26 @@ def test_ten_rejections_never_start_simulation(tmp_path):
     harness = Rehearsal(tmp_path / "session", rejection_count=10)
     result = iterate(harness, 10, 10)
     assert not result["accepted"] and result["total_attempts"] == 10
+
+
+def test_preflight_failure_stops_before_any_generation_or_candidate(tmp_path):
+    harness = Rehearsal(tmp_path / "session")
+
+    def unavailable():
+        raise RuntimeError("local vision unavailable")
+
+    with pytest.raises(RuntimeError, match="local vision unavailable"):
+        iterate(harness, 10, 10, before_generate=unavailable)
+    assert harness.generated == harness.evaluated == 0
+    assert not harness.versions()
+    assert not (harness.session / ".iteration.lock").exists()
+
+
+def test_exhausted_session_does_not_need_local_services(tmp_path):
+    harness = Rehearsal(tmp_path / "session", rejection_count=10)
+    iterate(harness, 10, 10)
+    result = iterate(harness, 10, 10, before_generate=lambda: pytest.fail())
+    assert result["stop_reason"] == "attempt_limit"
     assert harness.evaluated == 0
 
 

@@ -51,11 +51,9 @@ Keep Isaac and other large models stopped, but keep Qwen in LM Studio running.
 This only checks endpoint model availability and makes no inference call.
 Use `GAP_VLM_BASE_URL`, `GAP_VLM_MODEL` and optional `GAP_VLM_API_KEY` to override
 the local settings. Numeric loopback endpoints are mandatory; OpenAI or OpenRouter
-keys are never forwarded. The original CPU only mode remains available through
-`--task harness/tasks/libero-grocery-vision.json`.
-Old sessions automatically retain their original task manifest unless `--task` is
-supplied. To start a new geometry-only session explicitly select
-`--task harness/tasks/libero-grocery.json`.
+keys are never forwarded. Old sessions automatically retain their original task
+manifest and budgets. Advanced custom catalogs remain accessible through the
+Python Harness class rather than extra command line options.
 
 Router nodes declare `true`, `false` and `failed` routes. Their actual outputs are
 retained per trace event. The visualizer draws their real predicates as diamonds
@@ -75,7 +73,7 @@ its printed version path with the usual `evaluate --version PATH --execute` comm
 
 The current .env selects the loopback proxy and gpt-6.1-sol with medium reasoning.
 Requests explicitly send reasoning.effort=medium. OPENAI_API_KEY stays empty.
-Use --model and --reasoning-effort to override these settings for a particular run.
+Use OPENAI_MODEL and OPENAI_REASONING_EFFORT in .env to change these settings.
 Effective settings are saved in each call request and version lineage without
 rewriting historical graph versions.
 The pinned unofficial server uses the existing Codex ChatGPT login and plan allowance.
@@ -152,15 +150,17 @@ To generate a revision using the saved feedback, reuse the same session.
 .\.venv\Scripts\python.exe -m gap_harness.cli generate --session SESSION --live
 ```
 
-Or start a bounded generation and rehearsal loop with at most three candidate versions.
+Or start a bounded generation and rehearsal loop with at most ten candidate versions.
 
 ```powershell
-.\.venv\Scripts\python.exe -m gap_harness.cli iterate --live --execute
+.\.venv\Scripts\python.exe -m gap_harness.cli iterate --scenario packing --live --execute
 ```
 
 The default task uses the existing LIBERO grocery bindings and seeds zero through nine.
-The orchestrator chooses its decomposition within eight subgraphs. API calls and
-simulators run sequentially. There are at most forty eight API attempts per session,
+The orchestrator chooses its decomposition within three to eight physical subgraphs.
+The CLI keeps scenario session version max-attempts live and execute options only.
+Use --max-attempts to lower the default ten attempt limit. API calls and
+simulators run sequentially. New sessions allow at most ten calls per permitted attempt,
 4096 output tokens per request, a bounded input size, a request timeout and a separate
 simulator timeout. These are resource bounds, not a guaranteed dollar ceiling. No
 automatic API retries are made. Static failures are preserved and can inform the next
@@ -244,16 +244,17 @@ missing measurements with a model judgment or treat tuning seeds as held out tes
 
 ## Other tasks and simulators
 
-Use --task PATH with a new task manifest. It supplies the instruction, available
+Use the Python Harness class with a new task manifest. It supplies the instruction, available
 skills and action contracts, reference files, variations, evidence paths, fixed
 success predicates and trusted runner command. The orchestrator is not hardcoded
-to a grocery task or a fixed agent count. An inspection schema example is included:
+to a grocery task or a fixed agent count above the three subgraph minimum.
+The CLI selects deployed scenarios; for example:
 
 ```powershell
-.\.venv\Scripts\python.exe -m gap_harness.cli check --task harness/tasks/inspection-example.json
+.\.venv\Scripts\python.exe -m gap_harness.cli check --scenario packing
 ```
 
-That example is not an implemented simulation. A new task still needs real actions and
+The separate inspection manifest is only a schema example. A new task still needs real actions and
 an evaluator. The runner command uses argument substitution for graph, seed, output
 and root without a shell. It must write receipt.json with seed, graph_sha256, ok,
 graph status and trace, plus the evidence paths declared in its task. Paths for cwd

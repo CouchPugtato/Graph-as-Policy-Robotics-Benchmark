@@ -211,12 +211,31 @@ def test_automatic_session_export_uses_real_receipts_without_simulator(tmp_path,
     assert output.is_file()
     assert provenance["fps"] == 60
     assert provenance["playback_speed"] == 2
-    assert (output.parent / "policy-graph.png").is_file()
+    assert provenance["recap_seconds_per_revision"] == 5
+    assert (output.parent / "policy-run-policy.png").is_file()
     assert provenance["rates"] == [{"iteration": 1, "successes": 1, "trials": 1}]
     assert libero_export.export_session() == output
     assert sorted(path.name for path in output.parent.iterdir()) == [
-        "policy-graph.png", "visualizer_final_graph.mp4"]
+        "policy-run-policy.png", "policy-run-process.mp4"]
     assert not list(session.glob("visualizations/*/presentation.json"))
+
+
+@pytest.mark.parametrize("task_id,folder,title", [
+    ("libero-grocery-local-vlm", "grocery-order", "grocery-order"),
+    ("libero-fulfillment-local-qwen", "fulfillment", "grocery-fulfillment"),
+    ("libero-packing-local-qwen", "packing", "two-item-packing"),
+    ("libero-popcorn-local-qwen", "popcorn", "popcorn-preparation"),
+])
+def test_presentation_outputs_are_named_by_task(task_id, folder, title):
+    output = libero_export.presentation_output({"task": {"task_id": task_id}})
+    assert output.parent.name == folder
+    assert output.name == title + "-process.mp4"
+
+
+@pytest.mark.parametrize("seconds", [0, -1, float("nan"), 31])
+def test_invalid_iteration_hold_is_rejected_before_recording(tmp_path, seconds):
+    with pytest.raises(ValueError, match="iteration hold"):
+        libero_export.export_session(tmp_path / "missing", recap_s=seconds)
 
 
 def test_movie_cycles_distinct_revision_graphs_and_populates_rates(tmp_path,monkeypatch):

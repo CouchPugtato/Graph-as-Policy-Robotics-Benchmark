@@ -44,7 +44,9 @@ def check_reachability(start, adjacency, terminals):
         raise ValueError("graph has no reachable exit")
 
 
-def validate_topology(topology: Topology, task: Task, max_subgraphs=8):
+def validate_topology(topology: Topology, task: Task, max_subgraphs=8, *, min_subgraphs=1):
+    if len(topology.subgraphs) < min_subgraphs:
+        raise ValueError(f"orchestrator must assign at least {min_subgraphs} physical action subgraphs")
     if len(topology.subgraphs) > max_subgraphs:
         raise ValueError("orchestrator exceeded the skill agent budget")
     specs = {spec.name: spec for spec in topology.subgraphs}

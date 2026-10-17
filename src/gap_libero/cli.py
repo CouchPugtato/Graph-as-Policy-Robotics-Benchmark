@@ -116,6 +116,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="mode", required=True)
     commands.add_parser("check")
+    commands.add_parser("preflight")
     commands.add_parser("prepare-runtime")
     config = commands.add_parser("configure")
     config.add_argument("--source", type=Path, required=True)
@@ -148,6 +149,17 @@ def main() -> None:
     args = parser.parse_args()
     if args.mode == "check":
         result = check()
+    elif args.mode == "preflight":
+        try:
+            from gap_libero.local_vlm import LocalVLM, renderer_headroom
+            from gap_libero.runtime_config import prepare_runtime_config
+
+            prepare_runtime_config()
+            result = {"ok": True, "local_vlm": LocalVLM(timeout_s=10).preflight(),
+                      "gpu": renderer_headroom(), "models_loaded": False,
+                      "inference_validated": False, "simulator_started": False}
+        except Exception as error:
+            result = {"ok": False, "detail": str(error), "simulator_started": False}
     elif args.mode == "prepare-runtime":
         from gap_libero.windows_runtime import prepare_windows_runtime
 

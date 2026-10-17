@@ -14,12 +14,12 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from gap_harness.config import (
     DEFAULT_MODEL,
     DEFAULT_REASONING_EFFORT,
-    REASONING_EFFORTS,
     load_environment,
 )
-from gap_harness.engine import Harness
+from gap_harness.engine import MIN_GENERATED_SUBGRAPHS, Harness
 from gap_harness.evaluations import evaluation_complete, load_feedback
 from gap_harness.iterations import iterate
+from gap_harness.preflight import check_runner
 from gap_harness.provider import OpenAIResponses
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -40,33 +40,25 @@ def main():
     load_environment()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=["check", "api-check", "generate", "evaluate", "iterate"])
-    task_selector = parser.add_mutually_exclusive_group()
-    task_selector.add_argument("--task", type=Path)
-    task_selector.add_argument(
+    parser.add_argument(
         "--scenario",
-        choices=("fulfillment", "packing", "popcorn"),
+        choices=("grocery", "fulfillment", "packing", "popcorn"),
         help="select a deployed local Qwen LIBERO task",
     )
     parser.add_argument("--session", type=Path)
     parser.add_argument("--version", type=Path)
-    parser.add_argument("--model", default=os.environ.get("OPENAI_MODEL") or DEFAULT_MODEL)
-    parser.add_argument(
-        "--reasoning-effort",
-        choices=REASONING_EFFORTS,
-        default=os.environ.get("OPENAI_REASONING_EFFORT") or DEFAULT_REASONING_EFFORT,
-    )
     parser.add_argument("--live", action="store_true", help="allow hosted model usage")
     parser.add_argument("--execute", action="store_true", help="allow configured simulator motion")
-    parser.add_argument("--rounds", type=int, choices=range(1, 11), default=3)
     parser.add_argument(
         "--max-attempts",
         type=int,
         choices=range(1, 11),
+        default=10,
         help="cap total saved generation attempts in an iteration session",
     )
-    parser.add_argument("--max-subgraphs", type=int, choices=range(1, 17), metavar="N", default=8)
-    parser.add_argument("--max-calls", type=int, choices=range(1, 129), metavar="N", default=48)
     args = parser.parse_args()
+    model = os.environ.get("OPENAI_MODEL") or DEFAULT_MODEL
+    reasoning_effort = os.environ.get("OPENAI_REASONING_EFFORT") or DEFAULT_REASONING_EFFORT
     if args.mode in ("api-check", "generate", "iterate") and not args.live:
         parser.error("model requests require --live and use hosted service allowance or billing")
     if args.mode in ("evaluate", "iterate") and not args.execute:
@@ -85,7 +77,7 @@ def main():
     )
     try:
         provider = (
-            OpenAIResponses(args.model, reasoning_effort=args.reasoning_effort)
+            OpenAIResponses(model, reasoning_effort=reasoning_effort)
             if args.live
             else None
         )
@@ -96,7 +88,7 @@ def main():
                 ok: bool
 
             probe = OpenAIResponses(
-                args.model, max_output_tokens=512, reasoning_effort=args.reasoning_effort
+                model, max_output_tokens=512, reasoning_effort=reasoning_effort
             )
             response = probe.complete(
                 "Return only the requested JSON with ok true.",
@@ -124,20 +116,18 @@ def main():
             )
             return
         manifest = session / "session.json"
-        selected_task = (
-            ROOT / f"harness/tasks/libero-{args.scenario}-local-qwen.json"
-            if args.scenario
-            else args.task
-        )
-        task_path = selected_task or (
-            json.loads(manifest.read_text(encoding="utf-8")).get(
-                "task_manifest_path", str(DEFAULT_TASK)
+        saved = json.loads(manifest.read_text(encoding="utf-8")) if manifest.is_file() else {}
+        max_subgraphs = saved.get("max_subgraphs", 8)
+        max_calls = saved.get("max_calls", args.max_attempts * 10)
+        selected_task = None
+        if args.scenario:
+            selected_task = (
+                DEFAULT_TASK if args.scenario == "grocery"
+                else ROOT / f"harness/tasks/libero-{args.scenario}-local-qwen.json"
             )
-            if manifest.is_file()
-            else DEFAULT_TASK
-        )
+        task_path = selected_task or saved.get("task_manifest_path", DEFAULT_TASK)
         harness = Harness(
-            task_path, session, provider, max_subgraphs=args.max_subgraphs, max_calls=args.max_calls
+            task_path, session, provider, max_subgraphs=max_subgraphs, max_calls=max_calls
         )
         if args.mode == "check":
             result = {
@@ -145,12 +135,13 @@ def main():
                 "task": harness.task.task_id,
                 "available_skills": [skill.name for skill in harness.task.skills],
                 "skill_agent_count": "chosen by orchestrator",
-                "max_subgraphs": args.max_subgraphs,
-                "max_calls": args.max_calls,
+                "max_subgraphs": max_subgraphs,
+                "min_subgraphs": MIN_GENERATED_SUBGRAPHS,
+                "max_calls": max_calls,
                 "seeds": harness.task.seeds,
-                "model": args.model,
+                "model": model,
                 "api": OpenAIResponses(
-                    args.model, reasoning_effort=args.reasoning_effort
+                    model, reasoning_effort=reasoning_effort
                 ).public_settings(),
                 "network_requests": 0,
                 "simulator_started": False,
@@ -161,19 +152,22 @@ def main():
             result = harness.evaluate(args.version)
         else:
             version = None
-            rounds = args.rounds if args.mode == "iterate" else 1
+            rounds = args.max_attempts if args.mode == "iterate" else 1
             harness.progress.event(
-                f"task {harness.task.task_id} | model {args.model} | "
-                f"reasoning {args.reasoning_effort} | "
+                f"task {harness.task.task_id} | model {model} | "
+                f"reasoning {reasoning_effort} | "
                 f"session {session}"
             )
             harness.progress.event(
                 f"limits: up to {rounds} revision attempt(s); "
-                f"{args.max_subgraphs} skill agents per revision; "
-                f"{args.max_calls} generation calls per session; one request at a time"
+                f"{MIN_GENERATED_SUBGRAPHS} to {max_subgraphs} physical skill agents per revision; "
+                f"{max_calls} generation calls per session; one request at a time"
             )
             if args.mode == "iterate":
-                result = iterate(harness, rounds, args.max_attempts)
+                result = iterate(
+                    harness, rounds, args.max_attempts,
+                    before_generate=lambda: check_runner(harness),
+                )
             else:
                 harness.progress.event("revision attempt 1/1")
                 version = harness.generate()

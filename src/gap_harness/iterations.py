@@ -19,15 +19,15 @@ def passed(feedback, trial_count):
     )
 
 
-def iterate(harness, rounds, max_attempts=None):
+def iterate(harness, rounds, max_attempts=None, *, before_generate=None):
     if not 1 <= rounds <= 10 or (max_attempts is not None and not 1 <= max_attempts <= 10):
         raise ValueError("iteration limits must be between one and ten")
     harness.prepare()
     with session_lock(harness.session, ".iteration.lock"):
-        return iterate_locked(harness, rounds, max_attempts)
+        return iterate_locked(harness, rounds, max_attempts, before_generate=before_generate)
 
 
-def iterate_locked(harness, rounds, max_attempts):
+def iterate_locked(harness, rounds, max_attempts, *, before_generate=None):
     existing = harness.versions()
     version = existing[-1] if existing else None
     accepted = False
@@ -46,6 +46,8 @@ def iterate_locked(harness, rounds, max_attempts):
     remaining = (
         rounds if max_attempts is None else min(rounds, max(0, max_attempts - len(existing)))
     )
+    if not accepted and remaining and before_generate is not None:
+        before_generate()
     if not accepted:
         for index in range(remaining):
             attempts += 1

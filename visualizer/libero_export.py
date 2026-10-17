@@ -6,6 +6,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import subprocess
 import sys
 from bisect import bisect_right
@@ -24,6 +25,21 @@ except ImportError:
     import app
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def presentation_output(manifest):
+    task_id = manifest.get("task", {}).get("task_id", "policy-run")
+    names = {
+        "libero-fulfillment-local-qwen": ("fulfillment", "grocery-fulfillment"),
+        "libero-packing-local-qwen": ("packing", "two-item-packing"),
+        "libero-popcorn-local-qwen": ("popcorn", "popcorn-preparation"),
+    }
+    if task_id.startswith("libero-grocery"):
+        folder, title = "grocery-order", "grocery-order"
+    else:
+        fallback = re.sub(r"[^a-z0-9]+", "-", task_id.lower()).strip("-")[:80] or "policy-run"
+        folder, title = names.get(task_id, (fallback, fallback))
+    return ROOT / "docs/visualizations" / folder / f"{title}-process.mp4"
 
 
 def read(path):
@@ -232,8 +248,10 @@ def composite(base, pixels, label, status, color, size, footage_bounds=(.637, .0
     return image
 
 
-def render_movie(data, receipt_path, output, *, fps=60, size=(1280, 720), recap_s=1.25,
+def render_movie(data, receipt_path, output, *, fps=60, size=(1280, 720), recap_s=5,
                  playback_speed=1):
+    if not math.isfinite(recap_s) or not 0 < recap_s <= 30:
+        raise ValueError("iteration hold must be positive and at most thirty seconds")
     if not math.isfinite(playback_speed) or not 1 <= playback_speed <= 4:
         raise ValueError("playback speed must be between one and four")
     receipt_path, output = Path(receipt_path), Path(output)
@@ -359,7 +377,9 @@ def render_movie(data, receipt_path, output, *, fps=60, size=(1280, 720), recap_
 
 
 def export_session(session=None, output=None, *, size=(1280, 720), graph_detail="tools",
-                   playback_speed=2):
+                   playback_speed=2, recap_s=5):
+    if not math.isfinite(recap_s) or not 0 < recap_s <= 30:
+        raise ValueError("iteration hold must be positive and at most thirty seconds")
     if not math.isfinite(playback_speed) or not 1 <= playback_speed <= 4:
         raise ValueError("playback speed must be between one and four")
     session = Path(session).resolve() if session else latest_session()
@@ -373,7 +393,7 @@ def export_session(session=None, output=None, *, size=(1280, 720), graph_detail=
     identifier = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid4().hex[:8]
     destination = session / "visualizations" / identifier
     destination.mkdir(parents=True, exist_ok=False)
-    canonical = (ROOT / "docs/visualizations/visualizer_final_graph.mp4").resolve()
+    canonical = presentation_output(manifest).resolve()
     output = Path(output).resolve() if output else canonical
     if output.exists() and output != canonical:
         raise FileExistsError("existing video was not overwritten")
@@ -382,9 +402,10 @@ def export_session(session=None, output=None, *, size=(1280, 720), graph_detail=
                               destination / "replay")
     print("LIBERO stopped encoding video with two CPU threads", flush=True)
     staged = output.with_name(f".{output.stem}-{identifier}.mp4")
-    render_movie(data, receipt, staged, size=size, playback_speed=playback_speed)
+    render_movie(data, receipt, staged, size=size, playback_speed=playback_speed, recap_s=recap_s)
     staged.replace(output)
-    app.export_graph_image(data["iterations"][-1], output.parent / "policy-graph.png")
+    graph_name = output.stem.removesuffix("-process") + "-policy.png"
+    app.export_graph_image(data["iterations"][-1], output.parent / graph_name)
     print(output, flush=True)
     return output
 

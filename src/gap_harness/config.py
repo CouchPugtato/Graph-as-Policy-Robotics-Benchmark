@@ -21,7 +21,7 @@ def load_environment(path=ROOT / ".env"):
     path = Path(path)
     if not path.is_file():
         return
-    # shell settings take precedence and unrelated variables remain untouched
+    # shell settings take precedence
     for key, value in dotenv_values(path, interpolate=False).items():
         if key in ENV_KEYS and value is not None:
             os.environ.setdefault(key, value)

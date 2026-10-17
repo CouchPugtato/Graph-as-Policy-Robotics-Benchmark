@@ -112,6 +112,9 @@ class Graph_Grocery(SingleArmEnv):
         arena.floor.attrib.pop("material", None)
         arena.floor.set("rgba", "0.5 0.5 0.5 1")
         eye, target = np.array([1.35, -1.35, 1.15]), np.array([0.35, 0, 0.35])
+        if self.scenario == "packing":
+            # keep short objects visible behind the basket
+            eye, target = np.array([1.0, -1.2, 2.0]), np.array([0.5, 0, 0])
         arena.set_camera("agentview", eye, camera_quaternion(eye, target), {"fovy": "50"})
         self.objects_dict = {}
         for item in self.scene_plan.objects:

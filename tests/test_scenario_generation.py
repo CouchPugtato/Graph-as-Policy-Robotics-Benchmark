@@ -27,7 +27,7 @@ def test_reference_compiles_through_generation_validator(scenario):
 
 
 @pytest.mark.parametrize("scenario", ["fulfillment", "packing", "popcorn"])
-def test_complete_generation_path_with_offline_agent_fixture(scenario, tmp_path):
+def test_single_subgraph_reference_is_rejected_for_new_generation(scenario, tmp_path):
     from pathlib import Path
 
     from gap_harness.models import Subgraph, Topology
@@ -51,9 +51,12 @@ def test_complete_generation_path_with_offline_agent_fixture(scenario, tmp_path)
 
     task = Path(__file__).resolve().parents[1] / f"harness/tasks/libero-{scenario}-local-qwen.json"
     harness = Harness(task, tmp_path / "session", Provider())
-    version = harness.generate()
-    assert json.loads((version / "validation.json").read_text())["ok"]
-    assert (version / "workflow.json").is_file()
+    with pytest.raises(ValueError, match="at least 3 physical action subgraphs"):
+        harness.generate()
+    version = harness.session / "v0001"
+    assert json.loads((version / "validation.json").read_text())["ok"] is False
+    assert (version / "topology.json").is_file()
+    assert not (version / "graph.json").exists()
 
 
 def loop_example(max_steps=160, exhaust=False):
@@ -248,7 +251,7 @@ def test_cli_selects_new_scenario_without_model_calls(monkeypatch, capsys):
     assert report["network_requests"] == 0
 
 
-def test_release_uses_encoder_commands_and_clears_one_sided_contact(tmp_path):
+def test_release_uses_encoder_commands_and_refuses_persistent_contact(tmp_path):
     from types import SimpleNamespace
 
     from gap_libero.scenario_runner import ScenarioActions
@@ -294,7 +297,8 @@ def test_release_uses_encoder_commands_and_clears_one_sided_contact(tmp_path):
     bindings.command = command
     actions.bindings = bindings
     result = actions.motion("release_object", {})
-    assert result.outcome == "succeeded"
-    assert bindings.hold_position == pytest.approx([0.003, 0, 0])
-    assert retract.position_m == pytest.approx([0.503, 0.1, 0.28])
+    assert result.outcome == "failed"
+    assert "clear target contacts" in result.detail
+    assert bindings.hold_position == pytest.approx([0, 0, 0])
+    assert retract.position_m == pytest.approx([0.5, 0.1, 0.28])
     assert np.max(np.abs(gripper.current_action)) <= 1

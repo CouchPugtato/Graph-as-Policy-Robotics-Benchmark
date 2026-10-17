@@ -273,7 +273,7 @@ class ScenarioActions:
             if self.scenario == "packing":
                 basket_yaw = goal["yaw_rad"]
                 direction = -1 if len(self.completed) == 0 else 1
-                local_offset = direction * np.array([0.06, 0])
+                local_offset = direction * np.array([0.055, 0])
                 basket_rotation = np.array(
                     [
                         [math.cos(basket_yaw), -math.sin(basket_yaw)],
@@ -281,8 +281,9 @@ class ScenarioActions:
                     ]
                 )
                 xy += basket_rotation @ local_offset
+                # open across the basket and choose the nearest equivalent jaw orientation
                 desired_yaw = closest_parallel_jaw_yaw(
-                    basket_yaw, math.atan2(xy[1], xy[0]) + math.pi / 2
+                    basket_yaw + math.pi / 2, yaw
                 )
                 destination_orientation = [
                     math.cos(desired_yaw / 2),
@@ -290,7 +291,7 @@ class ScenarioActions:
                     0,
                     0,
                 ]
-                release_z = max(0.145, 0.02 + size[2] / 2 + (grasp_z - position[2]) + 0.005)
+                release_z = max(0.105, 0.02 + size[2] / 2 + (grasp_z - position[2]) + 0.008)
             elif self.scenario == "popcorn":
                 destination_yaw = math.atan2(xy[1], xy[0]) + math.pi / 2
                 handle_yaw = destination_yaw - math.pi / 2
@@ -349,47 +350,30 @@ class ScenarioActions:
             finger_geoms = {model.geom_name2id(geom) for geom in gripper.contact_geoms}
             self.bindings.gripper = 0
             clear = 0
-            nudged = False
-            left = {model.geom_name2id(geom) for geom in gripper.important_geoms["left_finger"]}
-            right = {model.geom_name2id(geom) for geom in gripper.important_geoms["right_finger"]}
+            # keep opening after contact clears before retracting the hand
             for _ in range(45):
-                if clear == 0:
-                    commands = []
-                    for index, joint in enumerate(gripper.joints):
-                        low, high = model.jnt_range[model.joint_name2id(joint)]
-                        position = float(data.get_joint_qpos(joint))
-                        desired = np.clip(position + (0.003 if index == 0 else -0.003), low, high)
-                        commands.append(2 * (desired - low) / (high - low) - 1)
-                    gripper.current_action = np.asarray(commands)
+                commands = []
+                for index, joint in enumerate(gripper.joints):
+                    low, high = model.jnt_range[model.joint_name2id(joint)]
+                    position = float(data.get_joint_qpos(joint))
+                    desired = np.clip(position + (0.004 if index == 0 else -0.004), low, high)
+                    commands.append(2 * (desired - low) / (high - low) - 1)
+                gripper.current_action = np.asarray(commands)
                 self.bindings.command()
                 touching = any(
                     (c.geom1 in target_geoms and c.geom2 in finger_geoms)
                     or (c.geom2 in target_geoms and c.geom1 in finger_geoms)
                     for c in data.contact[: data.ncon]
                 )
-                sides = {
-                    (-1 if c.geom1 in left or c.geom2 in left else 1)
-                    for c in data.contact[: data.ncon]
-                    if (
-                        (c.geom1 in target_geoms and c.geom2 in left | right)
-                        or (c.geom2 in target_geoms and c.geom1 in left | right)
-                    )
-                }
-                if len(sides) == 1 and not nudged:
-                    site = gripper.important_sites["grip_site"]
-                    offset = next(iter(sides)) * 0.003 * data.get_site_xmat(site)[:, 0]
-                    self.bindings.hold_position += offset
-                    retract = self.bindings.plan.actions["retract_from_basket"]
-                    retract.position_m = tuple(
-                        float(value + offset[axis]) for axis, value in enumerate(retract.position_m)
-                    )
-                    nudged = True
                 clear = clear + 1 if not touching else 0
-                if clear >= 3:
-                    self.bindings.gripper = 0
+                opened = all(
+                    abs(float(data.get_joint_qpos(joint))) >= 0.038
+                    for joint in gripper.joints
+                )
+                if clear >= 3 and opened:
                     self.bindings.hold_reference = self.bindings.hold_rotation = None
-                    return NodeResult(detail="target released with bounded aperture opening")
-            return NodeResult("failed", "target release contact did not clear")
+                    return NodeResult(detail="target released after full aperture and clear contacts")
+            return NodeResult("failed", "release controller could not open fully and clear target contacts")
         if name == "settle_release":
             stable = 0
             for _ in range(120):
@@ -411,7 +395,15 @@ class ScenarioActions:
                 stable = stable + 1 if ready else 0
                 if stable >= 10:
                     return NodeResult(detail="release stable for ten consecutive samples")
-            return NodeResult("failed", "release did not settle within the bounded wait")
+            key = "pan_on_burner" if self.scenario == "popcorn" else "target_contained"
+            reason = (
+                "placement outside destination bounds"
+                if not values[key]
+                else "release contact remains"
+                if not values["pan_released" if self.scenario == "popcorn" else "target_released"]
+                else "released object did not become stationary"
+            )
+            return NodeResult("failed", reason + "; bounded settle verification failed", outputs=values)
         result = self.bindings.timed_action(name, state)
         if result.outcome == "succeeded":
             if name == "close_gripper":
@@ -587,6 +579,23 @@ def run(output, graph, scenario, seed=0, variation="mixed", enable_motion=False,
                     result = action(state)
                 except Exception as error:
                     result = NodeResult("failed", f"{type(error).__name__}: {error}")
+                if result.outcome == "failed" or (
+                    result.outcome == "false" and name not in ("select_next_item",)
+                ):
+                    domain = (
+                        "geometry"
+                        if name.startswith(("estimate_", "check_target", "check_container"))
+                        else "perception"
+                        if name.startswith(("observe_", "detect_", "identify_", "segment_"))
+                        else "placement"
+                        if name in ("settle_release", "check_placement", "check_all_packed")
+                        else "control"
+                    )
+                    result = NodeResult(
+                        result.outcome,
+                        result.detail,
+                        outputs={**(result.outputs or {}), "failure_domain": domain},
+                    )
                 trajectory.append(
                     {
                         "action": name,

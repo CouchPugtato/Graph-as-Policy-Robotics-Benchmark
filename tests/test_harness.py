@@ -97,7 +97,7 @@ def test_shared_vision_cannot_form_a_standalone_physical_subgraph():
 class FakeProvider:
     model = "offline-test"
 
-    def __init__(self, count=2):
+    def __init__(self, count=3):
         self.count, self.calls = count, []
 
     def complete(self, instructions, context, output_model):
@@ -119,13 +119,56 @@ def harness(tmp_path):
     return Harness(task, tmp_path / "session", FakeProvider())
 
 
-@pytest.mark.parametrize("count", [1, 2, 5])
+@pytest.mark.parametrize("count", [3, 4, 5])
 def test_orchestrator_controls_agent_count(harness, count):
     harness.provider.count = count
     version = harness.generate()
     roles = [role for role, _ in harness.provider.calls]
     assert roles == ["Topology"] + ["Subgraph"] * count + ["CheckpointSet"]
     assert read(version / "validation.json")["skill_agent_count"] == count
+
+
+@pytest.mark.parametrize("count", [1, 2])
+def test_generation_rejects_fewer_than_three_subgraphs_before_skill_calls(harness, count):
+    harness.provider.count = count
+    with pytest.raises(ValueError, match="at least 3 physical action subgraphs"):
+        harness.generate()
+    assert len(harness.provider.calls) == 1
+    context = harness.provider.calls[0][1]
+    assert context["min_subgraphs"] == 3
+    assert read(harness.session / "v0001/validation.json")["ok"] is False
+
+
+def test_generation_rejects_impossible_agent_budget_without_model_requests(harness):
+    harness.max_subgraphs = 2
+    with pytest.raises(ValueError, match="at least three"):
+        harness.generate()
+    assert not harness.provider.calls
+    assert not harness.versions()
+
+
+def test_generation_rejects_padding_with_perception_only_subgraphs(tmp_path):
+    payload = task_payload()
+    payload["skills"].append({"name": "vision", "shared_tools": True,
+        "description": "shared vision", "instructions": "capture inside an action goal",
+        "actions": [{"name": "observe", "description": "capture image"}]})
+    task_path = tmp_path / "task.json"
+    task_path.write_text(json.dumps(payload))
+
+    class PerceptionOnlyProvider(FakeProvider):
+        def complete(self, instructions, context, output_model):
+            response = super().complete(instructions, context, output_model)
+            if output_model is Subgraph:
+                graph = json.loads(response["text"])
+                graph["nodes"][0]["action"] = "observe"
+                response["text"] = json.dumps(graph)
+            return response
+
+    harness = Harness(task_path, tmp_path / "session", PerceptionOnlyProvider())
+    with pytest.raises(ValueError, match="must execute an assigned physical action"):
+        harness.generate()
+    assert len(harness.provider.calls) == 2
+    assert not (harness.session / "v0001/graph.json").exists()
 
 
 def test_generation_reports_agents_validation_and_usage_without_prompt_content(harness):
@@ -135,13 +178,13 @@ def test_generation_reports_agents_validation_and_usage_without_prompt_content(h
     harness.generate()
     text = output.getvalue()
     assert "coordinator: started" in text
-    assert "skill agent 1/2" in text and "skill agent 2/2" in text
+    assert "skill agent 1/3" in text and "skill agent 3/3" in text
     assert "checkpoint-agent: started" in text
     assert "running final structural validation" in text
     assert "generation complete; simulation not yet evaluated" in text
-    assert "calls 4/48" in text and "reported session tokens 8" in text
+    assert "calls 5/48" in text and "reported session tokens 10" in text
     assert "private task instruction not for the terminal" not in text
-    assert len(harness.provider.calls) == 4
+    assert len(harness.provider.calls) == 5
 
 
 def test_cli_progress_uses_stderr_and_preserves_json_output(harness, monkeypatch, capsys):
@@ -151,15 +194,16 @@ def test_cli_progress_uses_stderr_and_preserves_json_output(harness, monkeypatch
 
     monkeypatch.setattr(cli, "load_environment", lambda: None)
     monkeypatch.setattr(cli, "OpenAIResponses", lambda model, **kwargs: harness.provider)
-    monkeypatch.setattr(sys, "argv", ["gap-harness", "generate", "--live", "--task",
-        str(harness.task_path), "--session", str(harness.session)])
+    harness.prepare()
+    monkeypatch.setattr(sys, "argv", ["gap-harness", "generate", "--live",
+        "--session", str(harness.session)])
     cli.main()
     captured = capsys.readouterr()
     assert json.loads(captured.out)["accepted"] is False
     assert "revision attempt 1/1" in captured.err
     assert "coordinator: started" in captured.err
     assert "limits:" in captured.err
-    assert len(harness.provider.calls) == 4
+    assert len(harness.provider.calls) == 5
 
 
 def test_compiler_preserves_execution_routes_and_membership():
@@ -233,8 +277,8 @@ def test_versions_are_retained_and_feedback_reaches_agents(harness):
     assert first.name == "v0001" and second.name == "v0002"
     assert (first / "graph.json").read_bytes() == original
     assert read(second / "lineage.json")["parent"] == first.name
-    assert harness.provider.calls[4][1]["previous"]["feedback"] == feedback
-    assert harness.provider.calls[5][1]["previous"]["workflow"]
+    assert harness.provider.calls[5][1]["previous"]["feedback"] == feedback
+    assert harness.provider.calls[6][1]["previous"]["workflow"]
 
 
 def test_failed_attempt_and_raw_output_are_preserved(harness):
@@ -244,7 +288,7 @@ def test_failed_attempt_and_raw_output_are_preserved(harness):
     first = harness.session / "v0001"
     assert read(first / "validation.json")["ok"] is False
     assert list(first.glob("calls/*/response.json"))
-    harness.provider.count = 1
+    harness.provider.count = 3
     assert harness.generate().name == "v0002"
 
 
@@ -307,6 +351,25 @@ def test_feedback_attributes_failures_to_subgraphs():
     trial = build_trial_feedback(receipt, Task.model_validate(task_payload()), graph,
         CheckpointSet.model_validate(checks_payload()), "hash", 0)
     assert aggregate_feedback([trial])["failures_by_subgraph"] == {"phase0": 1}
+
+
+def test_feedback_distinguishes_binding_failures_from_graph_failures():
+    graph = compiled()
+    receipt = receipt_for(graph, "hash")
+    terminal = graph["nodes"][0]["routes"]["failed"]
+    receipt["ok"] = False
+    receipt["graph"]["trace"][0].update(
+        outcome="failed", detail="placement outside destination bounds", next_node=terminal,
+        outputs={"failure_domain": "placement"},
+    )
+    receipt["graph"].update(terminal=terminal, status="failed")
+    trial = build_trial_feedback(receipt, Task.model_validate(task_payload()), graph,
+        CheckpointSet.model_validate(checks_payload()), "hash", 0)
+    assert trial["evaluated"] is True
+    assert trial["success"] is False
+    assert trial["failure_kind"] == "placement"
+    assert trial["failures"][0]["repair_target"] == "bindings"
+    assert aggregate_feedback([trial])["failures_by_domain"] == {"placement": 1}
 
 
 def test_failed_postcondition_is_reported_to_its_skill_agent():

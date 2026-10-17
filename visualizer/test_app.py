@@ -74,6 +74,26 @@ def fixture_history(tmp_path, records=None):
     return path, graph
 
 
+def test_iteration_counter_uses_actual_revision_numbers(tmp_path, monkeypatch):
+    path, _ = fixture_history(tmp_path, [
+        {"iteration": 1, "successes": 4, "trials": 10},
+        {"iteration": 3, "successes": 9, "trials": 10},
+    ])
+    data = app.load_history(path)
+    labels = []
+    original = app.plt.Figure.text
+
+    def text(figure, x, y, label, *args, **kwargs):
+        labels.append(label)
+        return original(figure, x, y, label, *args, **kwargs)
+
+    monkeypatch.setattr(app.plt.Figure, "text", text)
+    app.render(data, 0, size=(640, 360))
+    app.render(data, 1, size=(640, 360))
+    assert "Iteration 1/3" in labels
+    assert "Iteration 3/3" in labels
+
+
 def test_same_graph_does_not_invent_patches(tmp_path):
     path, _ = fixture_history(tmp_path)
     data = app.load_history(path)

@@ -83,12 +83,18 @@ def build_trial_feedback(
             }
         )
     for event in failed:
+        outputs = event.get("outputs")
+        domain = outputs.get("failure_domain", "policy") if isinstance(outputs, dict) else "policy"
+        if domain not in ("geometry", "perception", "placement", "control", "policy"):
+            domain = "policy"
         attribution.append(
             {
                 "node": event.get("node_id"),
                 "subgraph": membership.get(event.get("node_id")),
                 "action": event.get("action"),
                 "detail": event.get("detail", ""),
+                "failure_domain": domain,
+                "repair_target": "graph" if domain == "policy" else "bindings",
             }
         )
     checked = []
@@ -162,12 +168,20 @@ def build_trial_feedback(
             }
         )
         before = after
+    failure_kind = (
+        next(
+            (failure["failure_domain"] for failure in attribution if "failure_domain" in failure),
+            "policy",
+        )
+        if evaluated
+        else "infrastructure"
+    )
     return {
         "seed": seed,
         "success": bool(success),
         "process_ok": process_ok,
         "evaluated": evaluated,
-        "failure_kind": None if success else ("policy" if evaluated else "infrastructure"),
+        "failure_kind": None if success else failure_kind,
         "graph_bound": graph_bound,
         "seed_bound": seed_bound,
         "known_trace": known_trace,
@@ -193,6 +207,14 @@ def aggregate_feedback(trials):
     counts = Counter(
         failure["subgraph"] or "unattributed" for trial in trials for failure in trial["failures"]
     )
+    domains = Counter(
+        next(
+            (failure["failure_domain"] for failure in trial["failures"] if "failure_domain" in failure),
+            "policy",
+        )
+        for trial in trials
+        if trial["evaluated"] and not trial["success"]
+    )
     return {
         "trials": len(trials),
         "successes": sum(trial["success"] for trial in trials),
@@ -205,6 +227,7 @@ def aggregate_feedback(trials):
             else None
         ),
         "failures_by_subgraph": dict(counts),
+        "failures_by_domain": dict(domains),
         "records": trials,
         "revision_guidance": (
             [
@@ -214,6 +237,9 @@ def aggregate_feedback(trials):
             if evaluated != len(trials)
             else [
                 "compare state and contact changes around the first failing phase",
+                "binding failures identify the failing subsystem not proven graph mistakes; "
+                "repair and reevaluate bindings before spending more generation attempts "
+                "when the same physical failure repeats across revisions",
                 "separate perception geometry control and verification failures",
                 "repair responsible subgraphs and preserve successful behavior",
                 "do not change task criteria physics bindings or seed specific coordinates",

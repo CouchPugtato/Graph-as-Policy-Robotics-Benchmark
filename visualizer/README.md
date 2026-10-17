@@ -44,8 +44,11 @@ The representative variation is the first successful trial of the final evaluate
 revision, or its first trial if none succeeded. A new recording does not alter the
 historical campaign rate. Its actual success or failure is shown at the end. Subsequent
 exports reuse matching footage. The default output is the single
-docs/visualizations/visualizer_final_graph.mp4 file with only a high resolution
-policy-graph.png alongside it. No manifest or preview image is exported.
+scenario named process video under docs/visualizations with its matching
+policy PNG alongside it. Grocery order fulfillment packing and popcorn each
+have their own folder and descriptive filenames. No manifest or preview image
+is exported. Each revision stays visible for five seconds by default and the
+top corner shows the current iteration. Use --seconds to change the hold time.
 Successful exports replace this
 presentation video atomically. Original graphs feedback and receipts stay unchanged.
 Explicit alternate video paths still refuse overwrites. The app exports 1080p at 60 fps;

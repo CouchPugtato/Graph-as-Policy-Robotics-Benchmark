@@ -32,7 +32,7 @@ def load_history(path):
     data = json.loads(path.read_text(encoding="utf-8"))
     if data.get("schema_version") != 1 or not data.get("iterations"):
         raise ValueError("history must declare schema version one and iterations")
-    duration = data.get("seconds_per_iteration", 2)
+    duration = data.get("seconds_per_iteration", 5)
     if not isinstance(duration, (int, float)) or not math.isfinite(duration) or not 0.5 <= duration <= 30:
         raise ValueError("seconds per iteration must be between half a second and thirty")
     previous = None
@@ -433,6 +433,9 @@ def render(data, index, progress=1, size=(1920, 1080), video_frame=None):
         graph_panel(graph_ax, record)
         chart = fig.add_axes(layout["chart_axes"], facecolor="#fafafa")
         records = data["iterations"]
+        fig.text(.973, .994, f"Iteration {record['iteration']}/{records[-1]['iteration']}",
+                 ha="right", va="top", color=FG, fontsize=12, fontweight="bold",
+                 bbox=dict(boxstyle="round,pad=.25", fc=BG, ec="none"))
         xs = [r["iteration"] for r in records]
         ys = [100*r["successes"]/r["trials"] for r in records]
         visible_x, visible_y = xs[:index+1], ys[:index+1]
@@ -523,7 +526,7 @@ class Clip:
 
 
 def export(data, output, fps, size, seconds=None, replay=None):
-    duration = data.get("seconds_per_iteration", 2) if seconds is None else seconds
+    duration = data.get("seconds_per_iteration", 5) if seconds is None else seconds
     frames = max(1, round(duration*fps))
     output.parent.mkdir(parents=True, exist_ok=True)
     # encode on the cpu with a small thread budget and no simulator processes
@@ -593,7 +596,7 @@ def viewer(data):
     label.pack()
     playing = False
     position = 0
-    duration = data.get("seconds_per_iteration", 2)
+    duration = data.get("seconds_per_iteration", 5)
     clip = None
     active_index = None
 
@@ -658,7 +661,7 @@ def main():
     parser.add_argument("--iteration", type=int, default=10, help="iteration number for preview")
     parser.add_argument("--fps", type=int, default=12)
     parser.add_argument("--width", type=int, choices=[1280,1920], default=1920)
-    parser.add_argument("--seconds", type=float)
+    parser.add_argument("--seconds", type=float, help="seconds to show each iteration")
     parser.add_argument("--replay-footage", type=Path, help="continuous scene video during history playback")
     args = parser.parse_args()
     if args.mode == "libero":
@@ -666,7 +669,8 @@ def main():
 
         try:
             export_session(args.session, args.output, size=(args.width, args.width*9//16),
-                           graph_detail=args.graph_detail, playback_speed=args.playback_speed)
+                           graph_detail=args.graph_detail, playback_speed=args.playback_speed,
+                           recap_s=5 if args.seconds is None else args.seconds)
         except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as error:
             parser.exit(1, f"LIBERO video stopped: {error}\n")
         return

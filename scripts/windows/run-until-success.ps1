@@ -14,19 +14,13 @@ $task = Get-Content -LiteralPath $taskPath -Raw | ConvertFrom-Json
 if ((($task.seeds | Sort-Object) -join ',') -ne '0,1,2,3,4,5,6,7,8,9') {
     throw 'This runner requires the full ten seed task catalog'
 }
-$maxSubgraphs = 8
-$maxCalls = $MaxTries * ($maxSubgraphs + 2)
 if ($Session) {
     $Session = (Resolve-Path -LiteralPath $Session).Path
-    $manifest = Get-Content -LiteralPath (Join-Path $Session 'session.json') -Raw | ConvertFrom-Json
-    $maxSubgraphs = [int]$manifest.max_subgraphs
-    $maxCalls = [int]$manifest.max_calls
 }
-$arguments = @('-m', 'gap_harness.cli', 'iterate', '--task', $taskPath,
-               '--live', '--execute', '--rounds', "$MaxTries", '--max-attempts', "$MaxTries",
-               '--max-subgraphs', "$maxSubgraphs", '--max-calls', "$maxCalls")
+$arguments = @('-m', 'gap_harness.cli', 'iterate', '--scenario', $Scenario,
+               '--live', '--execute', '--max-attempts', "$MaxTries")
 if ($Session) { $arguments += @('--session', $Session) }
-Write-Host "Stop at 10/10 or $MaxTries total candidates. Model call budget: $maxCalls for this session."
+Write-Host "Stop at 10/10 or $MaxTries total candidates. Saved session budgets are preserved."
 Write-Host 'Keep Qwen and the Codex proxy running. Close Isaac and unrelated model workers.'
 Push-Location -LiteralPath $repoRoot
 try {

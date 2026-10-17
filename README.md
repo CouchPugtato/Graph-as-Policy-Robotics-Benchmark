@@ -1,6 +1,6 @@
 # Graph-as-Policy for Isaac Sim
 
-![Graph-as-Policy grocery benchmark visualization](docs/visualizations/visualizer_final_graph.gif)
+[![Graph-as-Policy grocery order policy](docs/visualizations/grocery-order/grocery-order-policy.png)](docs/visualizations/grocery-order/grocery-order-process.mp4)
 
 This project is a focused recreation of the **Fulfill Grocery Orders** benchmark,
 implementing a Graph-as-Policy controller for deterministic, single-object
