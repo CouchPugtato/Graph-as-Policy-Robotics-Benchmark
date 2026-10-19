@@ -153,6 +153,23 @@ def test_existing_matching_footage_is_reused_without_starting_simulation(tmp_pat
     assert path == receipt and not started
 
 
+@pytest.mark.parametrize("first_step,last_step", [(1, 3), (0, 2)])
+def test_incomplete_matching_footage_is_not_reused(tmp_path, first_step, last_step):
+    session = session_fixture(tmp_path, 1)
+    data, manifest = libero_export.session_history(session)
+    directory = session / "visualizations/old/replay"
+    directory.parent.mkdir(parents=True)
+    recording_fixture(directory, session / "v0001/graph.json")
+    index_path = directory / "recording/frames.json"
+    index = json.loads(index_path.read_text())
+    index["frames"] = [frame for frame in index["frames"]
+                       if first_step <= frame["step"] <= last_step]
+    index_path.write_text(json.dumps(index))
+    with pytest.raises(ValueError, match="runner with --record support"):
+        libero_export.record_final(session, data["iterations"][-1], manifest,
+                                  tmp_path / "unused")
+
+
 def test_export_encodes_real_video_and_provenance(tmp_path):
     session = session_fixture(tmp_path, 1)
     data, _ = libero_export.session_history(session)

@@ -182,10 +182,6 @@ def compare_grocery(output: Path, graph: Path = DEFAULT_GRAPH, seed=0, capture_o
             for a in model.geom_names if a.startswith("gripper0_") and "finger" in a
             for b in non_target)
         backend.check_contacts()
-        if not capture_only:
-            for _ in range(20):
-                backend.step([0, 0, 0, 0, 0, 0, -1])
-            metadata["settle_steps"] = 20
     else:
         backend, metadata = create_grocery_backend(seed, motion_enabled=not capture_only,
                                                   camera_size=(640, 480) if vision_backend else (320, 240))
@@ -194,6 +190,10 @@ def compare_grocery(output: Path, graph: Path = DEFAULT_GRAPH, seed=0, capture_o
         if record:
             backend.start_recording(output / "recording")
             metadata["recording"] = {"frames": "recording/frames.json", "fps": 20}
+        if native and not capture_only:
+            for _ in range(20):
+                backend.step([0, 0, 0, 0, 0, 0, -1])
+            metadata["settle_steps"] = 20
         sources = ["src/gap_libero/grocery_task.py", "src/gap_libero/grocery_comparison.py",
                    "src/gap_libero/actions.py", "src/gap_libero/backend.py",
                    "src/gap_isaac/grocery_scene.py", "src/gap_isaac/sampling.py",

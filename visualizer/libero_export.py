@@ -150,8 +150,9 @@ def record_final(session, record, manifest, destination):
         if (receipt.get("graph_sha256") == record["graph_sha256"]
                 and receipt.get("seed") == record["seed"]
                 and (recording / "frames.json").is_file()):
-            frame_index(recording)
-            return receipt_path, False
+            frames = frame_index(recording)["frames"]
+            if frames[0]["step"] == 0 and frames[-1]["step"] == receipt.get("steps"):
+                return receipt_path, False
     runner = manifest["task"].get("runner")
     if not runner or "gap_libero.cli" not in runner["command"]:
         raise ValueError("this task needs a LIBERO runner with --record support")
