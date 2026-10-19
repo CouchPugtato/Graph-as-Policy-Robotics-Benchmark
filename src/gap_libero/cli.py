@@ -76,7 +76,8 @@ def execute(args: argparse.Namespace) -> dict:
 
         return compare_grocery(args.output, args.graph or DEFAULT_GRAPH, args.seed,
                                capture_only=not args.enable_motion, record=args.record,
-                               perception_backend=args.perception_backend)
+                               perception_backend=args.perception_backend,
+                               native=getattr(args, "native_object", False))
     from gap_libero.backend import create_backend
 
     if args.mode == "run":
@@ -128,7 +129,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="mode", required=True)
     commands.add_parser("check")
-    commands.add_parser("preflight")
+    preflight = commands.add_parser("preflight")
+    preflight.add_argument("--native-object", action="store_true")
     commands.add_parser("prepare-runtime")
     benchmark = commands.add_parser("benchmark", help="select an official upstream environment")
     benchmark.add_argument("arguments", nargs=argparse.REMAINDER)
@@ -151,6 +153,7 @@ def main() -> None:
     grocery.add_argument("--enable-motion", action="store_true")
     grocery.add_argument("--record", action="store_true")
     grocery.add_argument("--perception-backend", choices=("rgbd-color", "local-vlm"))
+    grocery.add_argument("--native-object", action="store_true")
     scenario = commands.add_parser("scenario")
     scenario.add_argument("--scenario",choices=("fulfillment","packing","popcorn"),required=True)
     scenario.add_argument("--variation",choices=("xy","basket-swap","permutation","mixed"),default="mixed")
@@ -177,6 +180,20 @@ def main() -> None:
             result = {"ok": True, "local_vlm": LocalVLM(timeout_s=10).preflight(),
                       "gpu": renderer_headroom(), "models_loaded": False,
                       "inference_validated": False, "simulator_started": False}
+            if args.native_object:
+                from gap_libero.benchmarks.runtime import configure as configure_benchmark
+
+                selected = configure_benchmark("libero-object")
+                native_root = selected["source"] / "libero/libero"
+                task_name = "pick_up_the_alphabet_soup_and_place_it_in_the_basket"
+                paths = (native_root / "bddl_files/libero_object" / f"{task_name}.bddl",
+                         native_root / "init_files/libero_object" / f"{task_name}.pruned_init")
+                if not all(path.is_file() and path.stat().st_size > 0 for path in paths):
+                    raise FileNotFoundError("native LIBERO Object task or initial states are missing")
+                result.update(native_task_files_present=True,
+                              source_revision=selected["revision"], task_id=0,
+                              native_file_sha256=[hashlib.sha256(path.read_bytes()).hexdigest()
+                                                  for path in paths])
         except Exception as error:
             result = {"ok": False, "detail": str(error), "simulator_started": False}
     elif args.mode == "prepare-runtime":

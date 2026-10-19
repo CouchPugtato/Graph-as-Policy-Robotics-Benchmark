@@ -76,9 +76,12 @@ def matrix_pose(matrix: Any) -> Pose:
 class LiberoBackend:
     def __init__(self, env: Any, *, camera: str = "agentview", motion_enabled: bool = False,
                  max_steps: int = 400, workspace: Any = None,
-                 forbidden_geom_pairs: Any = (), episode_step_limit: int = 1000) -> None:
+                 forbidden_geom_pairs: Any = (), episode_step_limit: int = 1000,
+                 object_aliases: Any = None, verify_after_goal: bool = False) -> None:
         if episode_step_limit not in (1000, 4000):
             raise ValueError("unsupported episode step limit")
+        if type(verify_after_goal) is not bool:
+            raise ValueError("post goal verification must be an explicit boolean")
         if type(max_steps) is not int or not 1 <= max_steps <= episode_step_limit:
             raise ValueError("max_steps must be an integer from one to one thousand")
         self.workspace = np.asarray(workspace, dtype=float) if workspace is not None else None
@@ -87,6 +90,8 @@ class LiberoBackend:
                 or not (self.workspace[0] < self.workspace[1]).all()):
             raise ValueError("workspace requires ordered finite minimum and maximum corners")
         self.env, self.camera = env, camera
+        self.object_aliases = dict(object_aliases or {})
+        self.verify_after_goal = verify_after_goal
         self.motion_enabled, self.max_steps = motion_enabled, max_steps
         self.steps, self.closed, self.done = 0, False, False
         self.recorder = None
@@ -158,6 +163,9 @@ class LiberoBackend:
         if self.recorder is not None:
             self.recorder.record(self.observation, self.steps)
         self.done = bool(done)
+        if (self.done and self.verify_after_goal and self.task_success()
+                and not getattr(self.env.env, "done", False)):
+            self.done = False
         self.check_workspace(self.eef_position())
         self.check_contacts()
         return self.observation
@@ -167,6 +175,7 @@ class LiberoBackend:
 
     def target_object(self, name: str) -> Any:
         objects = self.env.env.objects_dict
+        name = self.object_aliases.get(name, name)
         if name not in objects:
             raise ValueError(f"unknown LIBERO target object: {name}")
         return objects[name]
@@ -259,7 +268,8 @@ class LiberoBackend:
 
 
 def create_backend(*, suite: str = "libero_spatial", task_id: int = 0, init_state_id: int = 0,
-                   seed: int = 0, **settings: Any) -> tuple[LiberoBackend, dict[str, Any]]:
+                   seed: int = 0, camera_size=(320, 240),
+                   **settings: Any) -> tuple[LiberoBackend, dict[str, Any]]:
     if suite not in SUITES + PRO_SUITES or min(task_id, init_state_id, seed) < 0:
         raise ValueError("invalid suite or negative task state or seed")
     from gap_libero.runtime_config import prepare_runtime_config
@@ -277,10 +287,14 @@ def create_backend(*, suite: str = "libero_spatial", task_id: int = 0, init_stat
     if init_state_id >= len(states):
         raise ValueError("initial state id is outside the task state list")
     camera = settings.get("camera", "agentview")
+    width, height = camera_size
+    if not (type(width) is int and type(height) is int
+            and 1 <= width <= 640 and 1 <= height <= 480):
+        raise ValueError("camera resolution exceeds the RGB-D observation budget")
     bddl_path = Path(get_libero_path("bddl_files")) / task.problem_folder / task.bddl_file
     env = OffScreenRenderEnv(
         bddl_file_name=str(bddl_path),
-        camera_names=[camera], camera_heights=240, camera_widths=320, camera_depths=True,
+        camera_names=[camera], camera_heights=height, camera_widths=width, camera_depths=True,
         controller="OSC_POSE", control_freq=20, horizon=settings.get("max_steps", 400),
         ignore_done=False, render_gpu_device_id=0,
     )

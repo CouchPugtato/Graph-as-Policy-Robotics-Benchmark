@@ -42,7 +42,7 @@ def main():
     parser.add_argument("mode", choices=["check", "api-check", "generate", "evaluate", "iterate"])
     parser.add_argument(
         "--scenario",
-        choices=("grocery", "fulfillment", "packing", "popcorn"),
+        choices=("grocery", "fulfillment", "packing", "popcorn", "native-object"),
         help="select a deployed local Qwen LIBERO task",
     )
     parser.add_argument("--session", type=Path)

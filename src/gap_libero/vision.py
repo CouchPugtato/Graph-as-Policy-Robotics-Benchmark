@@ -323,6 +323,92 @@ def estimate_geometry(
     }
 
 
+def native_candidates(bundle):
+    depth = bundle.to_gap_camera()["depth"]
+    valid = np.isfinite(depth) & (depth >= 0.015) & (depth <= 20)
+    points = np.full((*depth.shape, 3), np.nan)
+    points[valid] = masked_world_points(bundle, valid)
+    # use the declared floor plane without simulator instance masks or object poses
+    foreground = valid & (points[:, :, 2] > 0.008) & (points[:, :, 2] < 0.23)
+    foreground &= (np.abs(points[:, :, 0]) < 0.7) & (np.abs(points[:, :, 1]) < 0.7)
+    foreground &= points[:, :, 0] > -0.4
+    size = int(foreground.sum())
+    if size > 50000:
+        raise ValueError("native candidate foreground exceeds its pixel budget")
+    indices = np.full(depth.shape, -1, dtype=int)
+    indices[foreground] = np.arange(size)
+    edges = []
+    for first, second in ((np.s_[:-1, :], np.s_[1:, :]), (np.s_[:, :-1], np.s_[:, 1:])):
+        joined = foreground[first] & foreground[second]
+        joined &= np.linalg.norm(points[first] - points[second], axis=2) < 0.012
+        edges.append((indices[first][joined], indices[second][joined]))
+    rows = np.concatenate([pair[0] for pair in edges])
+    columns = np.concatenate([pair[1] for pair in edges])
+    parents = np.arange(size)
+
+    def root(index):
+        while parents[index] != index:
+            parents[index] = parents[parents[index]]
+            index = parents[index]
+        return index
+
+    for first, second in zip(rows, columns):
+        first, second = root(first), root(second)
+        if first != second:
+            parents[max(first, second)] = min(first, second)
+    _, labels = np.unique([root(index) for index in range(size)], return_inverse=True)
+    count = int(labels.max()) + 1 if len(labels) else 0
+    components = np.full(depth.shape, -1, dtype=int)
+    components[foreground] = labels
+    regions = []
+    for index in range(count):
+        mask = components == index
+        y, x = np.nonzero(mask)
+        if len(x) < 24:
+            continue
+        spans = np.ptp(points[mask], axis=0)
+        tin = (0.03 <= min(spans[:2]) <= max(spans[:2]) <= 0.09
+               and 0.045 <= spans[2] <= 0.11)
+        basket = (0.1 <= min(spans[:2]) <= max(spans[:2]) <= 0.3
+                  and 0.08 <= spans[2] <= 0.2)
+        if not (tin or basket):
+            continue
+        regions.append({"mask": mask, "pixels": len(x), "box_xyxy": [
+            max(0, int(x.min()) - 3), max(0, int(y.min()) - 3),
+            min(depth.shape[1], int(x.max()) + 4), min(depth.shape[0], int(y.max()) + 4)]})
+    regions.sort(key=lambda item: item["pixels"], reverse=True)
+    return [{**item, "id": f"C{index + 1}"} for index, item in enumerate(regions[:6])]
+
+
+def native_geometry(points, object_id, camera_position=None, *, silhouette_points=None):
+    cloud = np.asarray(points, dtype=float)
+    if cloud.ndim != 2 or cloud.shape[1] != 3 or len(cloud) < 30 or not np.isfinite(cloud).all():
+        raise ValueError("native object requires thirty finite visible surface points")
+    spans = np.ptp(cloud, axis=0)
+    if np.any(spans > 0.35) or cloud[:, 2].min() < 0:
+        raise ValueError("native object cloud exceeds the declared floor workspace")
+    top = float(np.quantile(cloud[:, 2], 0.98))
+    if object_id == "alphabet_soup":
+        if not 0.055 <= top <= 0.105:
+            raise ValueError("target is not a supported upright native soup can")
+        source = cloud if silhouette_points is None else np.asarray(silhouette_points)
+        cap = source[np.abs(source[:, 2] - top) < 0.003]
+        if len(cap) < 12 or np.any(np.ptp(cap[:, :2], axis=0) < 0.03):
+            raise ValueError("native can top is not sufficiently visible")
+        center = (cap[:, :2].min(axis=0) + cap[:, :2].max(axis=0)) / 2
+        position = [*center.tolist(), top - 0.04]
+    elif object_id == "basket":
+        if not (0.08 <= min(spans[:2]) <= max(spans[:2]) <= 0.3):
+            raise ValueError("native basket coverage is incomplete")
+        center = (cloud[:, :2].min(axis=0) + cloud[:, :2].max(axis=0)) / 2
+        position = [*center.tolist(), 0.0]
+    else:
+        raise ValueError("native geometry supports only the declared soup and basket task")
+    return {"position_m": position, "yaw_rad": 0.0, "point_count": len(cloud),
+            "visible_dimensions_m": spans.tolist(), "uses_evaluator_pose": False,
+            "geometry_source": "qwen-selected-native-rgbd", "support_plane_m": 0.0}
+
+
 class VisionActions:
     def __init__(
         self,
@@ -333,6 +419,7 @@ class VisionActions:
         descriptions=None,
         geometry_estimator=None,
         silhouette_objects=None,
+        candidate_provider=None,
     ):
         self.capture = capture
         self.output = output
@@ -343,6 +430,7 @@ class VisionActions:
         self.counter = 0
         self.identifier = identifier
         self.candidates = None
+        self.candidate_provider = candidate_provider
         self.identifications = {}
         self.descriptions = descriptions or {}
         self.geometry_estimator = geometry_estimator or estimate_geometry
@@ -373,11 +461,13 @@ class VisionActions:
         camera = self.bundle.to_gap_camera()
         if self.identifier is not None:
             if self.candidates is None:
-                self.candidates = propose_candidates(camera["rgb"])
+                self.candidates = (self.candidate_provider(self.bundle)
+                                   if self.candidate_provider else propose_candidates(camera["rgb"]))
             return NodeResult(
                 outputs={
                     object_id + "_detection": {
-                        "backend": "color-region-proposals",
+                        "backend": "rgbd-foreground-regions" if self.candidate_provider
+                                   else "color-region-proposals",
                         "rgb_sha256": self.bundle.observation.rgb_sha256,
                         "candidates": [
                             {key: value for key, value in item.items() if key != "mask"}

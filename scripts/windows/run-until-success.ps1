@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory, Position = 0)]
-    [ValidateSet('grocery', 'fulfillment', 'packing', 'popcorn')][string]$Scenario,
+    [ValidateSet('grocery', 'fulfillment', 'packing', 'popcorn', 'native-object')][string]$Scenario,
     [ValidateRange(1, 10)][int]$MaxTries = 10,
     [string]$Session
 )

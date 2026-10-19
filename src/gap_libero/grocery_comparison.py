@@ -67,7 +67,9 @@ def create_grocery_backend(seed=0, motion_enabled=False, max_steps=1000, workspa
         "scene": asdict(env.env.scene_plan), "models_loaded": False}
 
 
-def build_action_plan(backend, seed, perceived=None):
+def build_action_plan(backend, seed, perceived=None, *, native=False):
+    if native and perceived is None:
+        raise ValueError("native motion requires image derived geometry")
     if perceived is None:
         env = backend.env.env
         data = env.sim.data
@@ -79,7 +81,7 @@ def build_action_plan(backend, seed, perceived=None):
         target = perceived["alphabet_soup"]["position_m"]
         basket = perceived["basket"]["position_m"]
         basket_yaw = perceived["basket"]["yaw_rad"]
-    grasp_z = float(target[2] + 0.035)
+    grasp_z = float(target[2] + (0.025 if native else 0.035))
     transit_z = 0.28
     # keep the wrist near its neutral heading as the arm moves around the base
     grasp_yaw = math.atan2(float(target[1]), float(target[0])) + math.pi / 2
@@ -113,14 +115,33 @@ def build_action_plan(backend, seed, perceived=None):
         plan["actions"][name]["orientation_xyzw"] = basket_orientation
     plan["actions"]["position_for_release"]["tolerance_m"] = 0.0015
     plan["actions"]["position_for_release"]["position_gain"] = 4
+    if native:
+        plan.update(suite="libero_object", init_state_id=seed)
+        plan["actions"]["position_for_release"]["position_m"][2] = 0.24
+        orientation = [1.0, 0.0, 0.0, 0.0]
+        for action in plan["actions"].values():
+            if action["kind"] == "move":
+                action["orientation_xyzw"] = orientation
     return RunPlan.model_validate(plan)
 
 
+def native_evidence(backend):
+    data = backend.env.sim.data
+    target = backend.target_object("alphabet_soup")
+    position = data.get_body_xpos(target.root_body).tolist()
+    success = backend.task_success()
+    return {"target_position_m": position,
+            "target_released": not backend.grasped("alphabet_soup"),
+            "target_contained": success, "official_goal_satisfied": success}
+
+
 def compare_grocery(output: Path, graph: Path = DEFAULT_GRAPH, seed=0, capture_only=False,
-                    record=False, perception_backend=None):
+                    record=False, perception_backend=None, native=False):
     graph_bytes = graph.read_bytes()
     policy = GraphPolicy.from_json(graph)
     vision_backend = perception_backend or policy.metadata.get("perception_backend")
+    if native and (not 0 <= seed < 10 or vision_backend != "local-vlm"):
+        raise ValueError("native object task requires local Qwen and initial states zero through nine")
     if vision_backend not in (None, "rgbd-color", "local-vlm"):
         raise ValueError("unsupported perception backend no oracle fallback is allowed")
     identifier, vlm_settings = None, None
@@ -130,8 +151,45 @@ def compare_grocery(output: Path, graph: Path = DEFAULT_GRAPH, seed=0, capture_o
         identifier = LocalVLM()
         vlm_settings = identifier.preflight()
         vlm_settings.update(renderer_headroom())
-    backend, metadata = create_grocery_backend(seed, motion_enabled=not capture_only,
-        camera_size=(640, 480) if vision_backend else (320, 240))
+    if native:
+        from gap_libero.backend import create_backend
+        from gap_libero.benchmarks.runtime import activate
+
+        selected = activate("libero-object")
+        backend, metadata = create_backend(
+            suite="libero_object", task_id=0, init_state_id=seed, seed=seed,
+            camera_size=(640, 480), motion_enabled=not capture_only, max_steps=1000,
+            workspace=[[-0.8, -0.8, 0.015], [0.8, 0.8, 1.2]],
+            object_aliases={"alphabet_soup": "alphabet_soup_1", "basket": "basket_1"},
+            verify_after_goal=True)
+        metadata.update(custom_task=False, official_libero_benchmark=True,
+                        source_revision=selected["revision"],
+                        post_goal_verification=True,
+                        benchmark_scope="libero-object-task-0-initial-states-0-9")
+        model = backend.env.sim.model
+        obstacle_geoms = {geom for obj in backend.env.env.objects_dict.values()
+                          for geom in obj.contact_geoms}
+        obstacle_geoms.update(name for name in model.geom_names if "floor" in name)
+        robot_geoms = [name for name in model.geom_names
+                       if name.startswith("robot0_") and "link0" not in name and "link1" not in name]
+        robot_geoms += [name for name in model.geom_names
+                        if name.startswith("gripper0_") and "finger" not in name]
+        backend.forbidden_pairs = {frozenset((model.geom_name2id(a), model.geom_name2id(b)))
+                                   for a in robot_geoms for b in obstacle_geoms}
+        non_target = obstacle_geoms - set(backend.target_object("alphabet_soup").contact_geoms)
+        backend.forbidden_pairs.update(
+            frozenset((model.geom_name2id(a), model.geom_name2id(b)))
+            for a in model.geom_names if a.startswith("gripper0_") and "finger" in a
+            for b in non_target)
+        backend.check_contacts()
+        if not capture_only:
+            for _ in range(20):
+                backend.step([0, 0, 0, 0, 0, 0, -1])
+            metadata["settle_steps"] = 20
+    else:
+        backend, metadata = create_grocery_backend(seed, motion_enabled=not capture_only,
+                                                  camera_size=(640, 480) if vision_backend else (320, 240))
+    evidence = lambda: native_evidence(backend) if native else backend.env.env.containment()
     try:
         if record:
             backend.start_recording(output / "recording")
@@ -156,7 +214,8 @@ def compare_grocery(output: Path, graph: Path = DEFAULT_GRAPH, seed=0, capture_o
                 metadata.update(local_vlm=vlm_settings, models_loaded=True,
                                 models_loaded_by_worker=False,
                                 geometry_source="live-rgbd-local-vlm-and-shape-priors")
-        metadata["containment_evaluator"] = "gap_isaac.evaluate.target_is_contained"
+        metadata["containment_evaluator"] = ("libero.env.check_success" if native else
+                                             "gap_isaac.evaluate.target_is_contained")
         metadata["contact_parameters"] = {"proxy_margin_m": 0, "proxy_solref": [0.01, 1.0],
                                          "finger_force_limit_n": 7.2}
         (output / "scene.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
@@ -169,7 +228,12 @@ def compare_grocery(output: Path, graph: Path = DEFAULT_GRAPH, seed=0, capture_o
         if vision_backend:
             from gap_libero.vision import VisionActions
 
-            vision = VisionActions(backend.capture, output / "perception", identifier=identifier)
+            from gap_libero.vision import native_candidates, native_geometry
+
+            options = ({"candidate_provider": native_candidates, "geometry_estimator": native_geometry,
+                        "descriptions": {"alphabet_soup": "the ALPHABET SOUP metal can with a blue upper label and orange soup with pasta letters below a white band not the red tomato sauce can",
+                                         "basket": "the open woven wicker basket"}} if native else {})
+            vision = VisionActions(backend.capture, output / "perception", identifier=identifier, **options)
 
         def motion(name, state):
             nonlocal bindings, plan_text
@@ -179,7 +243,7 @@ def compare_grocery(output: Path, graph: Path = DEFAULT_GRAPH, seed=0, capture_o
                         and state.get(key + "_found") is True
                         for key in ("alphabet_soup", "basket")):
                     raise RuntimeError("image derived target and container geometry required")
-                plan = build_action_plan(backend, seed, vision.geometries if vision else None)
+                plan = build_action_plan(backend, seed, vision.geometries if vision else None, native=native)
                 plan_text = plan.model_dump_json(indent=2)
                 (output / "plan.json").write_text(plan_text, encoding="utf-8")
                 bindings = LiberoGraphActions(backend, plan)
@@ -200,7 +264,7 @@ def compare_grocery(output: Path, graph: Path = DEFAULT_GRAPH, seed=0, capture_o
         checkpoints = {"target_grasped": False, "target_lifted": False,
                        "target_released": False, "target_contained": False}
         trajectory = []
-        initial_height = float(backend.env.env.containment()["target_position_m"][2])
+        initial_height = float(evidence()["target_position_m"][2])
 
         def phase_state():
             data, model = backend.env.sim.data, backend.env.sim.model
@@ -217,8 +281,9 @@ def compare_grocery(output: Path, graph: Path = DEFAULT_GRAPH, seed=0, capture_o
                 "contacts": [{"geometries": [model.geom_id2name(contact.geom1),
                                               model.geom_id2name(contact.geom2)],
                               "distance_m": float(contact.dist)}
-                             for contact in data.contact[:data.ncon]],
-                **backend.env.env.containment()}
+                             for contact in data.contact[:min(data.ncon, 64) if native else data.ncon]],
+                "contact_count": data.ncon,
+                **evidence()}
 
         initial_state = phase_state()
 
@@ -233,7 +298,14 @@ def compare_grocery(output: Path, graph: Path = DEFAULT_GRAPH, seed=0, capture_o
                     result = action(state)
                 except Exception as error:
                     result = NodeResult("failed", f"{type(error).__name__}: {error}")
-                values = backend.env.env.containment()
+                if native and result.outcome in ("failed", "false"):
+                    domain = ("geometry" if name.startswith(("estimate_", "check_target", "check_container"))
+                              else "perception" if name.startswith(("observe_", "detect_", "identify_", "segment_"))
+                              else "placement" if name in ("settle_release", "check_placement")
+                              else "control")
+                    result = NodeResult(result.outcome, result.detail,
+                                        outputs={**(result.outputs or {}), "failure_domain": domain})
+                values = evidence()
                 held = backend.grasped("alphabet_soup")
                 if name == "close_gripper" and result.outcome == "succeeded":
                     checkpoints["target_grasped"] = held
@@ -255,7 +327,7 @@ def compare_grocery(output: Path, graph: Path = DEFAULT_GRAPH, seed=0, capture_o
         registry = {name: wrapped(name, action) for name, action in registry.items()}
         result = GraphPolicyExecutor(policy, registry).execute({"seed": seed,
                                                                "target_id": "alphabet_soup"})
-        values = backend.env.env.containment()
+        values = evidence()
         success = backend.task_success()
         backend.capture().save(output / "final")
         if hashlib.sha256(graph.read_bytes()).digest() != hashlib.sha256(graph_bytes).digest():
@@ -280,12 +352,14 @@ def compare_grocery(output: Path, graph: Path = DEFAULT_GRAPH, seed=0, capture_o
                 "disallowed_collisions": backend.disallowed_collisions,
                 "task_success": success, **values},
             "comparison_limits": [(
-                "local VLM identification over color region proposals not DINO or SAM"
+                ("local VLM identification over RGB-D foreground regions not DINO or SAM" if native else
+                 "local VLM identification over color region proposals not DINO or SAM")
                 if identifier else "color segmentation and known shape priors "
                 "rather than neural object identification" if vision else
                 "oracle scene geometry rather than saved perception"),
                                   "different robot meshes controller contacts and solver",
                                   "contact abort uses geometry pairs not Isaac impulse threshold",
-                                  "custom LIBERO task not an official suite score"]}
+                                  ("native LIBERO Object task zero only not a whole suite score" if native else
+                                   "custom LIBERO task not an official suite score")]}
     finally:
         backend.close()

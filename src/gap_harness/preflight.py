@@ -11,6 +11,9 @@ def check_runner(harness):
         return
     root = (harness.task_path.parent / runner.cwd).resolve()
     command = [runner.command[0].format(root=str(root)), "-m", "gap_libero.cli", "preflight"]
+    native = "--native-object" in runner.command
+    if native:
+        command.append("--native-object")
     harness.progress.event("checking local vision server and renderer before generation")
     try:
         result = subprocess.run(
@@ -26,4 +29,6 @@ def check_runner(harness):
     if result.returncode or report.get("ok") is not True:
         raise RuntimeError("local vision preflight failed before generation: " +
                            str(report.get("detail", "local services are not ready"))[:1500])
+    if native and report.get("native_task_files_present") is not True:
+        raise RuntimeError("native task readiness was not verified before generation")
     harness.progress.event("local vision preflight passed; no inference or simulation performed")

@@ -41,3 +41,25 @@ def test_no_runtime_probe_for_tasks_without_a_runner(monkeypatch):
     candidate.task.runner = None
     monkeypatch.setattr("gap_harness.preflight.subprocess.run", lambda *a, **kw: pytest.fail())
     check_runner(candidate)
+
+
+@pytest.mark.parametrize("native_ready", [True, False])
+def test_native_task_files_are_checked_before_generation(monkeypatch, native_ready):
+    path = ROOT / "harness/tasks/libero-native-object-local-qwen.json"
+    candidate = SimpleNamespace(task=Task.model_validate_json(path.read_text()), task_path=path,
+                                progress=SimpleNamespace(event=lambda message: None))
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append(command)
+        return SimpleNamespace(returncode=0, stdout=json.dumps(
+            {"ok": True, "native_task_files_present": native_ready}))
+
+    monkeypatch.setattr("gap_harness.preflight.subprocess.run", run)
+    if native_ready:
+        check_runner(candidate)
+    else:
+        with pytest.raises(RuntimeError, match="native task readiness"):
+            check_runner(candidate)
+    assert calls[0][-2:] == ["preflight", "--native-object"]
+    assert "--enable-motion" not in calls[0]

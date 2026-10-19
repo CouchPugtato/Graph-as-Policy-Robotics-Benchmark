@@ -86,7 +86,25 @@ runtime dependencies. Preparation downloads evaluation files from the official
 Hugging Face dataset but no policy weights or demonstrations. No installed LIBERO
 package or custom configuration is replaced.
 
-Existing custom harness manifests do not automatically support these environments.
+Native LIBERO-Object task zero now has a deployed harness selection, `native-object`.
+It reuses the central grocery runner, local Qwen service, RGB-D geometry, and bounded
+controls. The target is the textured alphabet-soup can, not the custom blue cylinder.
+Ten variation indices select official saved initial states zero through nine of this
+single task. This is not a whole-suite score or a held-out generalization test.
+Depth-connected regions are filtered by declared shape priors, then Qwen chooses
+identities. Simulator poses are used only for grasp and evaluation evidence, never
+for motion target selection. The official goal must remain satisfied after release.
+Collision guards and the one-thousand-step episode limit remain active during bounded
+post-goal release verification. Other native tasks do not yet have automatic bindings.
+
+With Qwen and the Codex proxy running, generation and evaluation use the existing harness:
+
+```powershell
+.\.venv\Scripts\python.exe -m gap_harness.cli check --scenario native-object
+.\.venv\Scripts\python.exe -m gap_harness.cli iterate --scenario native-object --live --execute --max-attempts 10
+```
+
+Existing custom harness manifests do not automatically support the other native environments.
 Native graph execution requires a matching bounded `RunPlan` and explicit motion opt in
 through `-Mode run -Graph ... -Plan ... -EnableMotion`. The benchmark goal predicate
 determines success. Task-specific perception and action bindings must be implemented

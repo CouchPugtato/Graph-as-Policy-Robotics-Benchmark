@@ -1,0 +1,394 @@
+{
+  "schema_version": 1,
+  "task_id": "libero-native-object-local-qwen",
+  "instruction": "In the original LIBERO Object task zero pick the alphabet soup can with the blue ALPHABET SOUP label and orange pasta letters and place it in the woven basket. Use local Qwen to identify candidates formed from calibrated RGB-D foreground regions above the known floor plane. Execute observe detect identify segment estimate check before movement. Route explicitly on found grasp and placement checks and abort on missing geometry. No proxy color identity rules or simulator pose fallback. Seeds zero through nine select the corresponding official saved initial states of this one task.",
+  "skills": [
+    {
+      "name": "perceiving-proxy-objects",
+      "shared_tools": true,
+      "description": "Local Qwen identification and native RGB-D foreground geometry",
+      "instructions": "Detect proposes up to six largest RGB-D foreground regions compatible with the declared can or basket dimensions above the known floor plane. Depth discontinuities separate objects that touch in the image. These shape gates do not assign identities. identify_target selects the actual alphabet soup can and identify_container selects the woven basket using local Qwen. The chosen masks feed metric depth reconstruction. Abort if either object is absent ambiguous occluded or geometry is rejected. No hidden object pose or simulator segmentation fallback. At most two model calls per episode.",
+      "actions": [
+        {
+          "name": "observe_scene",
+          "kind": "tool",
+          "description": "Capture calibrated RGB-D",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ],
+          "requires": []
+        },
+        {
+          "name": "detect_target",
+          "kind": "tool",
+          "description": "Propose native RGB-D foreground regions without selecting identities",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ],
+          "requires": [
+            "observe_scene"
+          ]
+        },
+        {
+          "name": "segment_target",
+          "kind": "tool",
+          "description": "Produce and save a binary image mask",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ],
+          "requires": [
+            "identify_target"
+          ]
+        },
+        {
+          "name": "estimate_target",
+          "kind": "tool",
+          "description": "Reconstruct metric geometry from masked depth",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ],
+          "requires": [
+            "segment_target"
+          ]
+        },
+        {
+          "name": "check_target",
+          "kind": "router",
+          "description": "Return true only for valid image derived geometry",
+          "outcomes": [
+            "true",
+            "false",
+            "failed"
+          ],
+          "requires": [
+            "estimate_target"
+          ]
+        },
+        {
+          "name": "detect_container",
+          "kind": "tool",
+          "description": "Propose native RGB-D foreground regions without selecting identities",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ],
+          "requires": [
+            "observe_scene"
+          ]
+        },
+        {
+          "name": "segment_container",
+          "kind": "tool",
+          "description": "Produce and save a binary image mask",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ],
+          "requires": [
+            "identify_container"
+          ]
+        },
+        {
+          "name": "estimate_container",
+          "kind": "tool",
+          "description": "Reconstruct metric geometry from masked depth",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ],
+          "requires": [
+            "segment_container"
+          ]
+        },
+        {
+          "name": "check_container",
+          "kind": "router",
+          "description": "Return true only for valid image derived geometry",
+          "outcomes": [
+            "true",
+            "false",
+            "failed"
+          ],
+          "requires": [
+            "estimate_container"
+          ]
+        },
+        {
+          "name": "identify_target",
+          "description": "Use local Qwen to choose a candidate by visual description",
+          "requires": [
+            "detect_target"
+          ]
+        },
+        {
+          "name": "identify_container",
+          "description": "Use local Qwen to choose a candidate by visual description",
+          "requires": [
+            "detect_container"
+          ]
+        }
+      ],
+      "reference_files": []
+    },
+    {
+      "name": "grasping-direct-ik",
+      "description": "Open align descend close and lift with verified physical grasping",
+      "instructions": "Use the upstream skill guidance but only the deployed aliases below. The binding supplies scene dependent poses and checks holds. Do not invent perception or cuRobo tools. Lift may be included here or in a separate subgraph using this skill.",
+      "actions": [
+        {
+          "name": "open_gripper",
+          "kind": "tool",
+          "description": "Open fingers before approaching",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ],
+          "requires": [
+            "check_target",
+            "check_container"
+          ]
+        },
+        {
+          "name": "align_over_target",
+          "kind": "tool",
+          "description": "Move above the target with grasp orientation",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ],
+          "requires": [
+            "open_gripper"
+          ]
+        },
+        {
+          "name": "descend_to_grasp",
+          "kind": "tool",
+          "description": "Descend to the grasp pose",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ],
+          "requires": [
+            "align_over_target"
+          ]
+        },
+        {
+          "name": "close_gripper",
+          "kind": "tool",
+          "description": "Close with bounded force and verify two finger contact",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ],
+          "requires": [
+            "descend_to_grasp"
+          ]
+        },
+        {
+          "name": "lift_grasped",
+          "kind": "tool",
+          "description": "Lift the held object and verify elevation and grasp",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ],
+          "requires": [
+            "check_grasp"
+          ]
+        },
+        {
+          "name": "check_grasp",
+          "kind": "router",
+          "description": "Route on verified two finger contact after closing",
+          "outcomes": [
+            "true",
+            "false",
+            "failed"
+          ],
+          "requires": [
+            "close_gripper"
+          ]
+        }
+      ],
+      "reference_files": [
+        "../../cache/upstream/open-robot-skills/skills/grasping-direct-ik/SKILL.md"
+      ]
+    },
+    {
+      "name": "transporting-objects",
+      "description": "Transport a verified held object into the basket and release",
+      "instructions": "The deployed actions resolve poses from the scene. Require lift before transport then position release retract and settle. No direct coordinate editing or physics changes are available.",
+      "actions": [
+        {
+          "name": "move_over_basket",
+          "kind": "tool",
+          "description": "Carry held target over the basket",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ],
+          "requires": [
+            "lift_grasped"
+          ]
+        },
+        {
+          "name": "position_for_release",
+          "kind": "tool",
+          "description": "Lower held target inside the basket opening",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ],
+          "requires": [
+            "move_over_basket"
+          ]
+        },
+        {
+          "name": "release_object",
+          "kind": "tool",
+          "description": "Open and verify release",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ],
+          "requires": [
+            "position_for_release"
+          ]
+        },
+        {
+          "name": "retract_from_basket",
+          "kind": "tool",
+          "description": "Retract clear of the basket after release",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ],
+          "requires": [
+            "release_object"
+          ]
+        },
+        {
+          "name": "settle_release",
+          "kind": "tool",
+          "description": "Wait for settling and verify task containment",
+          "outcomes": [
+            "succeeded",
+            "failed"
+          ],
+          "requires": [
+            "retract_from_basket"
+          ]
+        },
+        {
+          "name": "check_placement",
+          "kind": "router",
+          "description": "Route on the unchanged containment and release predicate",
+          "outcomes": [
+            "true",
+            "false",
+            "failed"
+          ],
+          "requires": [
+            "settle_release"
+          ]
+        }
+      ],
+      "reference_files": [
+        "../../cache/upstream/open-robot-skills/skills/transporting-objects/SKILL.md"
+      ]
+    }
+  ],
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+  ],
+  "initial_inputs": [],
+  "checkpoint_evidence": [
+    "evaluation.checkpoints.target_grasped",
+    "evaluation.checkpoints.target_lifted",
+    "evaluation.checkpoints.target_released",
+    "evaluation.checkpoints.target_contained",
+    "evaluation.task_success",
+    "perception.target_found",
+    "perception.container_found",
+    "perception.target_identified",
+    "perception.container_identified"
+  ],
+  "required_true": [
+    "evaluation.checkpoints.target_grasped",
+    "evaluation.checkpoints.target_lifted",
+    "evaluation.checkpoints.target_released",
+    "evaluation.checkpoints.target_contained",
+    "evaluation.task_success",
+    "perception.target_found",
+    "perception.container_found",
+    "perception.target_identified",
+    "perception.container_identified"
+  ],
+  "required_actions": [
+    "open_gripper",
+    "align_over_target",
+    "descend_to_grasp",
+    "close_gripper",
+    "lift_grasped",
+    "move_over_basket",
+    "position_for_release",
+    "release_object",
+    "retract_from_basket",
+    "settle_release",
+    "observe_scene",
+    "detect_target",
+    "segment_target",
+    "estimate_target",
+    "check_target",
+    "detect_container",
+    "segment_container",
+    "estimate_container",
+    "check_container",
+    "check_grasp",
+    "check_placement",
+    "identify_target",
+    "identify_container"
+  ],
+  "runner": {
+    "command": [
+      "{root}/.venv-libero/Scripts/python.exe",
+      "-m",
+      "gap_libero.cli",
+      "compare-grocery",
+      "--seed",
+      "{seed}",
+      "--graph",
+      "{graph}",
+      "--output",
+      "{output}",
+      "--enable-motion",
+      "--perception-backend",
+      "local-vlm",
+      "--native-object"
+    ],
+    "cwd": "../..",
+    "timeout_s": 180,
+    "receipt": "receipt.json"
+  },
+  "limitations": [
+    "Native LIBERO Object task zero only not a whole suite evaluation",
+    "Ten official saved initial states zero through nine are reused for refinement and are not held out",
+    "Local Qwen identifies RGB-D foreground regions with a six candidate and two call budget",
+    "Known floor plane and upright 80 mm can height remain geometry priors",
+    "Actual simulator grasp contacts and the official goal predicate verify results but never choose motion targets",
+    "One bounded worker with at most one thousand control steps"
+  ]
+}
