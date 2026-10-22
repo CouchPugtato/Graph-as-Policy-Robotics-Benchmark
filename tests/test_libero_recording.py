@@ -5,7 +5,7 @@ import pytest
 from PIL import Image
 
 from gap_libero.recording import FrameRecorder
-from visualizer import libero_export
+from visualizer import libero_export, media
 
 
 def policy():
@@ -50,6 +50,96 @@ def recording_fixture(directory, graph):
         "trajectory": [{"action": first_node["action"], "start_step": 0, "step": 3}]}
     (directory / "receipt.json").write_text(json.dumps(receipt))
     return directory / "receipt.json"
+
+
+@pytest.mark.parametrize("settings", [dict(duration=61), dict(duration=31),
+                                      dict(speed=0), dict(fps=21), dict(width=4000),
+                                      dict(start=float("nan"))])
+def test_gif_conversion_limits(tmp_path, settings):
+    source = tmp_path / "video.mp4"
+    source.touch()
+    with pytest.raises(ValueError):
+        media.video_to_gif(source, **settings)
+
+
+def test_video_to_gif_encodes_moving_frames_and_refuses_overwrite(tmp_path):
+    source = tmp_path / "moving.mp4"
+    media.encode(["-f", "lavfi", "-i", "testsrc2=size=96x64:rate=6:duration=1",
+                  "-c:v", "libx264", "-pix_fmt", "yuv420p"], source)
+    output = media.video_to_gif(source, duration=1, fps=6, width=96)
+    with Image.open(output) as gif:
+        assert gif.n_frames > 1 and gif.size == (96, 64)
+        first = np.asarray(gif.convert("RGB"))
+        gif.seek(gif.n_frames - 1)
+        assert not np.array_equal(first, np.asarray(gif.convert("RGB")))
+    original = output.read_bytes()
+    with pytest.raises(FileExistsError):
+        media.video_to_gif(source)
+    assert output.read_bytes() == original
+
+
+def test_collect_results_uses_validated_cached_frames(tmp_path, monkeypatch):
+    session = session_fixture(tmp_path, 1)
+    manifest_path = session / "session.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["task"]["task_id"] = "test-task"
+    manifest_path.write_text(json.dumps(manifest))
+    directory = session / "visualizations/old/replay"
+    directory.parent.mkdir(parents=True)
+    replay = recording_fixture(directory, session / "v0001/graph.json")
+    monkeypatch.setattr(media, "ROOT", tmp_path)
+    monkeypatch.setattr(libero_export, "ROOT", tmp_path)
+    process = libero_export.presentation_output(manifest)
+    process.parent.mkdir(parents=True)
+    process.touch()
+    process.with_name("test-task-policy.png").touch()
+    summary = media.collect_sessions([session])
+    row = summary["scenarios"][0]
+    assert row["successes"] == row["trials"] == row["generation_attempts"] == 1
+    assert row["final_version"] == row["best_version"] == "v0001"
+    assert row["recording_receipt"] == replay.relative_to(tmp_path).as_posix()
+    robot = tmp_path / row["robot_video"]
+    assert robot.stat().st_size > 0
+    assert row["robot_video_sha256"] == libero_export.sha256(robot)
+    with pytest.raises(FileExistsError):
+        media.collect_sessions([session])
+    with pytest.raises(ValueError, match="only one session"):
+        media.collect_sessions([session, session], overwrite=True)
+
+
+def test_collect_recording_rejects_failed_or_incomplete_replay(tmp_path):
+    session = session_fixture(tmp_path, 1)
+    data, _ = libero_export.session_history(session)
+    directory = session / "visualizations/old/replay"
+    directory.parent.mkdir(parents=True)
+    path = recording_fixture(directory, session / "v0001/graph.json")
+    receipt = json.loads(path.read_text())
+    receipt["ok"] = False
+    path.write_text(json.dumps(receipt))
+    with pytest.raises(ValueError, match="no complete successful"):
+        media.matching_recording(session, data["iterations"][-1])
+    receipt["ok"] = True
+    receipt["steps"] += 1
+    path.write_text(json.dumps(receipt))
+    with pytest.raises(ValueError, match="no complete successful"):
+        media.matching_recording(session, data["iterations"][-1])
+
+
+def test_sparse_robot_recording_preserves_simulator_duration(tmp_path):
+    session = session_fixture(tmp_path, 1)
+    directory = session / "visualizations/old/replay"
+    directory.parent.mkdir(parents=True)
+    replay = recording_fixture(directory, session / "v0001/graph.json")
+    index = libero_export.frame_index(directory / "recording")
+    for row, step in zip(index["frames"], [0, 5, 10, 11], strict=True):
+        row["step"] = step
+    output = media.robot_video(replay, index, tmp_path / "sparse.mp4")
+    import imageio_ffmpeg
+
+    reader = imageio_ffmpeg.read_frames(str(output))
+    metadata = next(reader)
+    assert metadata["duration"] == pytest.approx(12 / 20, abs=.05)
+    assert sum(1 for _ in reader) == 12
 
 
 def test_recording_has_real_steps_and_flips_vertical_origin(tmp_path):

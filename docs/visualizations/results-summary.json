@@ -1,0 +1,269 @@
+{
+  "schema_version": 1,
+  "scope": "final measured revision per selected session not held out evaluation",
+  "video_note": "one successful replay per final graph not the ten trial evaluation",
+  "scenarios": [
+    {
+      "task_id": "libero-native-object-local-qwen",
+      "session": "results/harness/20261019T043212Z-edbce0ed",
+      "final_version": "v0001",
+      "successes": 10,
+      "trials": 10,
+      "generation_attempts": 1,
+      "best_version": "v0001",
+      "best_successes": 10,
+      "variation_indices": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ],
+      "failed_variations": [],
+      "graph_sha256": "abc3a8987d739fb1f55f9ce50af6fc01c03c2ff9689e7c41605faf9b275b11e8",
+      "task_sha256": "668ee85b786379521d40538ffe2325eefd12fe67ad2b15a8d5d338838d56581c",
+      "feedback": "results/harness/20261019T043212Z-edbce0ed/v0001/feedback.json",
+      "history": [
+        {
+          "version": "v0001",
+          "successes": 10,
+          "trials": 10
+        }
+      ],
+      "skipped_revisions": [],
+      "process_video": "docs/visualizations/libero-native-object-local-qwen/libero-native-object-local-qwen-process.mp4",
+      "policy_image": "docs/visualizations/libero-native-object-local-qwen/libero-native-object-local-qwen-policy.png",
+      "robot_video": "docs/visualizations/libero-native-object-local-qwen/libero-native-object-local-qwen-robot.mp4",
+      "robot_video_sha256": "46156a657d583dc27f60df4a63c485d6f5ccdbc5a5ed9abfd654f2ba72111aec",
+      "recording_receipt": "results/harness/20261019T043212Z-edbce0ed/visualizations/20261019T053711Z-af5fc94c/replay/receipt.json",
+      "recording_seed": 0,
+      "recording_steps": 796,
+      "recording_fps": 20
+    },
+    {
+      "task_id": "libero-grocery-local-vlm",
+      "session": "results/harness/grocery-20261019-003946",
+      "final_version": "v0001",
+      "successes": 10,
+      "trials": 10,
+      "generation_attempts": 1,
+      "best_version": "v0001",
+      "best_successes": 10,
+      "variation_indices": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ],
+      "failed_variations": [],
+      "graph_sha256": "6d68032bd8cfbdb4d299016f013c677853358cefad411e7e349cf4e017e319d3",
+      "task_sha256": "daf74b579fb9debe985118e2d7be778f95d1aeeed27bf95f28e86f30c3671b91",
+      "feedback": "results/harness/grocery-20261019-003946/v0001/feedback.json",
+      "history": [
+        {
+          "version": "v0001",
+          "successes": 10,
+          "trials": 10
+        }
+      ],
+      "skipped_revisions": [],
+      "process_video": "docs/visualizations/grocery-order/grocery-order-process.mp4",
+      "policy_image": "docs/visualizations/grocery-order/grocery-order-policy.png",
+      "robot_video": "docs/visualizations/grocery-order/grocery-order-robot.mp4",
+      "robot_video_sha256": "cec7df5f9b6b7b8b7e43046a14234b3d19cfaaf7afe79cebbdf4995b99f6498d",
+      "recording_receipt": "results/harness/grocery-20261019-003946/visualizations/20261019T053804Z-32ac5b0c/replay/receipt.json",
+      "recording_seed": 0,
+      "recording_steps": 936,
+      "recording_fps": 20
+    },
+    {
+      "task_id": "libero-fulfillment-local-qwen",
+      "session": "results/harness/fulfillment-20261019-003946",
+      "final_version": "v0010",
+      "successes": 9,
+      "trials": 10,
+      "generation_attempts": 10,
+      "best_version": "v0002",
+      "best_successes": 9,
+      "variation_indices": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ],
+      "failed_variations": [
+        1
+      ],
+      "graph_sha256": "bdf0ad687a6c766f58e0024faa4377770ec8f629953551ba4b1ec420509c8768",
+      "task_sha256": "5814f958a7cde29e77b3de3bc8fc604f9f4139a3f3f5c448e8fc62cb059b976d",
+      "feedback": "results/harness/fulfillment-20261019-003946/v0010/feedback.json",
+      "history": [
+        {
+          "version": "v0001",
+          "successes": 0,
+          "trials": 10
+        },
+        {
+          "version": "v0002",
+          "successes": 9,
+          "trials": 10
+        },
+        {
+          "version": "v0003",
+          "successes": 9,
+          "trials": 10
+        },
+        {
+          "version": "v0004",
+          "successes": 9,
+          "trials": 10
+        },
+        {
+          "version": "v0005",
+          "successes": 9,
+          "trials": 10
+        },
+        {
+          "version": "v0006",
+          "successes": 9,
+          "trials": 10
+        },
+        {
+          "version": "v0007",
+          "successes": 9,
+          "trials": 10
+        },
+        {
+          "version": "v0008",
+          "successes": 9,
+          "trials": 10
+        },
+        {
+          "version": "v0009",
+          "successes": 9,
+          "trials": 10
+        },
+        {
+          "version": "v0010",
+          "successes": 9,
+          "trials": 10
+        }
+      ],
+      "skipped_revisions": [],
+      "process_video": "docs/visualizations/fulfillment/grocery-fulfillment-process.mp4",
+      "policy_image": "docs/visualizations/fulfillment/grocery-fulfillment-policy.png",
+      "robot_video": "docs/visualizations/fulfillment/grocery-fulfillment-robot.mp4",
+      "robot_video_sha256": "990fa6d78defc6c63845a89f13b401e1444be8c6390171754c454e114c4e5e47",
+      "recording_receipt": "results/harness/fulfillment-20261019-003946/visualizations/20261019T053843Z-c4bf0ad2/replay/receipt.json",
+      "recording_seed": 0,
+      "recording_steps": 886,
+      "recording_fps": 20
+    },
+    {
+      "task_id": "libero-packing-local-qwen",
+      "session": "results/harness/packing-20261019-003946",
+      "final_version": "v0002",
+      "successes": 10,
+      "trials": 10,
+      "generation_attempts": 2,
+      "best_version": "v0002",
+      "best_successes": 10,
+      "variation_indices": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ],
+      "failed_variations": [],
+      "graph_sha256": "581622add92a0a9c7f5450954d74fa0b9e8073ff1525e7dfe6398d2a84bb8b41",
+      "task_sha256": "962a2e49011b63a7b7f02f6ccffdac7c6ce97b3bb8144f74d0db442dceb517ef",
+      "feedback": "results/harness/packing-20261019-003946/v0002/feedback.json",
+      "history": [
+        {
+          "version": "v0001",
+          "successes": 0,
+          "trials": 10
+        },
+        {
+          "version": "v0002",
+          "successes": 10,
+          "trials": 10
+        }
+      ],
+      "skipped_revisions": [],
+      "process_video": "docs/visualizations/packing/two-item-packing-process.mp4",
+      "policy_image": "docs/visualizations/packing/two-item-packing-policy.png",
+      "robot_video": "docs/visualizations/packing/two-item-packing-robot.mp4",
+      "robot_video_sha256": "879cf9ffc6810af1ffa979fca885b5b20e08d24fd8912dcc95f575cfdb560278",
+      "recording_receipt": "results/harness/packing-20261019-003946/visualizations/20261019T053916Z-23672cfb/replay/receipt.json",
+      "recording_seed": 0,
+      "recording_steps": 2129,
+      "recording_fps": 20
+    },
+    {
+      "task_id": "libero-popcorn-local-qwen",
+      "session": "results/harness/popcorn-20261019-003946",
+      "final_version": "v0001",
+      "successes": 10,
+      "trials": 10,
+      "generation_attempts": 1,
+      "best_version": "v0001",
+      "best_successes": 10,
+      "variation_indices": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ],
+      "failed_variations": [],
+      "graph_sha256": "b3478e7eaa428b2c46404bf064b7aa38b51119db0a32840e6e207ac174c5ab39",
+      "task_sha256": "d4d58eefd954e33ceba17433c37125b9e066d06ba36774ca62a3e80b0d4462e0",
+      "feedback": "results/harness/popcorn-20261019-003946/v0001/feedback.json",
+      "history": [
+        {
+          "version": "v0001",
+          "successes": 10,
+          "trials": 10
+        }
+      ],
+      "skipped_revisions": [],
+      "process_video": "docs/visualizations/popcorn/popcorn-preparation-process.mp4",
+      "policy_image": "docs/visualizations/popcorn/popcorn-preparation-policy.png",
+      "robot_video": "docs/visualizations/popcorn/popcorn-preparation-robot.mp4",
+      "robot_video_sha256": "3906a1fa0642062c7dbd72b322668e4c7592f4901e4813f9384a516fd54e3482",
+      "recording_receipt": "results/harness/popcorn-20261019-003946/visualizations/20261019T054010Z-363c0bde/replay/receipt.json",
+      "recording_seed": 0,
+      "recording_steps": 2985,
+      "recording_fps": 20
+    }
+  ]
+}

@@ -14,6 +14,40 @@ iteration scrubber.
 
 ## Run from the repository root
 
+### Offline robot clips and GIF previews
+
+`media.py` collects complete successful cached recordings for the final evaluated
+graph in each selected session. It validates graph/task evidence through the existing
+session reader, checks replay hashes and seed correspondence, and preserves sparse
+camera sample timing. It never starts simulation, model inference, or hosted calls.
+It requires existing process MP4 and policy PNG exports and writes robot-only MP4s
+beside them plus `docs/visualizations/results-summary.json`.
+
+```powershell
+.\.venv\Scripts\python.exe .\visualizer\media.py collect `
+    .\results\harness\20261019T043212Z-edbce0ed `
+    .\results\harness\grocery-20261019-003946 `
+    .\results\harness\fulfillment-20261019-003946 `
+    .\results\harness\packing-20261019-003946 `
+    .\results\harness\popcorn-20261019-003946
+
+.\.venv\Scripts\python.exe .\visualizer\media.py gif `
+    .\docs\visualizations\libero-native-object-local-qwen\libero-native-object-local-qwen-robot.mp4 `
+    --duration 60 --speed 3 --width 640 --fps 12
+```
+
+Use `--overwrite` only when replacing existing collection outputs or a GIF.
+The converter accepts any local video and an optional `--output` GIF path.
+`--start` and `--duration` select input seconds; `--speed` changes preview playback
+without changing simulation evidence. The defaults are 20 input seconds, normal
+speed, 640-pixel width and 12 FPS. Bounds are 60 input seconds, 30 output seconds,
+20 FPS, 1280-pixel width and an eight MiB GIF. Two-pass palette conversion limits
+memory use; encoding uses two CPU threads and a 120-second timeout per pass.
+
+The checked-in collection is indexed in
+[docs/visualizations](../docs/visualizations/README.md). A single successful replay
+does not replace the measured evaluation score or prove an untested graph works.
+
 ### Automatic LIBERO harness video
 
 ```powershell
