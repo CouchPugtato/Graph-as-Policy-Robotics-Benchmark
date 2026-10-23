@@ -181,6 +181,81 @@ threads and requires no GPU models. Add `--overwrite` to regenerate an existing 
 
 ## Isaac origin and upstream environments
 
+### Published GaP task environments
+
+The paper's LIBERO-derived fulfillment, packing, and popcorn task definitions are
+separate from both the custom proxies and the stock LIBERO suites. The shared
+adapter in `gap_libero.benchmarks.vab` selects the Variational Automation Benchmark
+revision pinned by GaP, `fd2bc0f63369ba39137df018bbca8f6b372ffa0b`.
+
+The new selections are `published-fulfillment`, `published-packing`, and
+`published-popcorn`. Each selects one upstream task and saved initial states 0–9;
+they do not evaluate every task in the upstream suites. Results are saved in new
+sessions and are not included in the October 19 results table above.
+
+- Fulfillment uses `libero_object_all_variance` with the alphabet-soup target.
+- Packing uses `libero_object_packing` and its six-item `pack_all_into` goal.
+  The upstream evaluator retires delivered objects by teleporting them away;
+  this is different from persistent physical containment in our custom task.
+- Popcorn uses `libero_popcorn_production`. Its published `on_top_of` predicate
+  checks pan placement only, not the full knob/heating/removal sequence.
+
+The October 22–23 binding replays reused each campaign's existing `v0001` graph;
+no new graph-generation calls were made.
+
+| Published task | Successful saved states | Status |
+| --- | --- | --- |
+| Grocery fulfillment | 10/10 | Passed |
+| Six-item packing | 10/10 | Passed  |
+| Popcorn pan placement | 10/10 | Passed |
+
+These are adapter regression results on the same ten development states, not
+held-out results or a full reproduction of the paper's evaluation. Packing
+improved from 2/10 and pan placement from 1/10 without changing the generated
+graphs. The final pan replay is saved in
+`results/harness/published-popcorn-20261022-151547/v0001/evaluation-0006/feedback.json`;
+all ten receipts report task success with the same binding signature and no
+infrastructure failures.
+
+Task files, initial layouts, and success predicates are not rewritten. As in the
+upstream GaP bridge, the adapter enables RGB-D rendering and overrides the rehearsal
+horizon; receipts record the original horizon and our 4000-step single-item or
+6000-step six-item packing budget. The stove
+also needs a MuJoCo compiler compatibility floor for zero mass/inertia bodies,
+recorded as `boundmass=1e-6` and `boundinertia=1e-9` in its receipt. These runtime
+differences must be retained when interpreting comparisons.
+
+The pan adapter fits a static mesh prior to the observed RGB-D cloud and screens
+grasp poses with CPU inverse kinematics and collision checks. Its robot finger
+pads use four-dimensional contacts to enable the existing torsional friction,
+and the finger drive gain is doubled while retaining the original 20 N actuator
+limits. Receipts record these contact/controller adaptations; this is not an
+unchanged-contact-dynamics reproduction. Grasp contact, slip, rotation, collision,
+release, and the published placement predicate remain checked during execution.
+
+Replay receipts also record the binding-code signature and reject code changes
+during execution. Failed fulfillment and packing runs include a post-run
+localization diagnostic, so selecting the wrong object is not automatically
+reported as a controller failure. Simulator positions used for that diagnostic
+are kept separate from perception and never become motion targets.
+
+Before hosted generation, the batch runs one bounded local reference-graph check
+per environment. Failed checks or binding-code changes block generation until a
+current check passes. The batch then generates and evaluates serially, preserving
+each revision, and exports the corresponding visualization.
+
+```powershell
+# keep local Qwen and the Codex proxy running and Isaac stopped
+.\scripts\run-published.ps1
+```
+
+For diagnostics without hosted generation:
+
+```powershell
+.\.venv\Scripts\python.exe -m gap_libero.benchmarks.vab check
+.\.venv\Scripts\python.exe -m gap_libero.benchmarks.vab smoke
+```
+
 The original Isaac Sim 6.1.0 / Isaac Lab 2.3.0 path remains available. Set
 `ISAAC_SIM_PATH` and run simulator scripts using Isaac's `python.bat`, not the
 core interpreter. Read-only checks include `gap-isaac validate`, `gap-isaac doctor`,
@@ -198,7 +273,7 @@ from custom proxy scenarios.
 
 Available selections include `libero-object`, `libero-spatial`, `libero-goal`,
 `libero-10`, `libero-90`, `libero-pro-object`, and `libero-pro-swap`. Native
-automatic generation/evaluation is currently deployed only for LIBERO-Object
+automatic generation/evaluation for these stock suites is currently deployed only for LIBERO-Object
 task 0. The other tasks need matching perception and action bindings before they
 can be evaluated automatically. LIBERO-Pro object and position-swap selections
 are kept explicit rather than equated with the paper's combined benchmark label.

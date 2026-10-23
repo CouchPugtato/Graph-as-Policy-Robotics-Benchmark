@@ -61,6 +61,17 @@ def check() -> dict:
 
 
 def execute(args: argparse.Namespace) -> dict:
+    if args.mode == "published":
+        from gap_libero.benchmarks.vab import run
+        from gap_libero.scenario_catalog import reference_graph
+
+        graph = args.graph
+        if graph is None:
+            graph = args.output / "reference-graph.json"
+            graph.write_text(json.dumps(reference_graph("packing" if args.scenario == "packing"
+                                                       else "fulfillment"), indent=2))
+        return run(args.output, graph, args.scenario, args.seed,
+                   motion=args.enable_motion, record=args.record)
     if args.mode == "scenario":
         from gap_libero.scenario_catalog import reference_graph
         from gap_libero.scenario_runner import run
@@ -131,6 +142,7 @@ def main() -> None:
     commands.add_parser("check")
     preflight = commands.add_parser("preflight")
     preflight.add_argument("--native-object", action="store_true")
+    preflight.add_argument("--published-case", choices=("fulfillment", "packing", "popcorn"))
     commands.add_parser("prepare-runtime")
     benchmark = commands.add_parser("benchmark", help="select an official upstream environment")
     benchmark.add_argument("arguments", nargs=argparse.REMAINDER)
@@ -161,7 +173,13 @@ def main() -> None:
     scenario.add_argument("--graph",type=Path)
     scenario.add_argument("--enable-motion",action="store_true")
     scenario.add_argument("--record",action="store_true")
-    for command in (capture, run, grocery, scenario):
+    published = commands.add_parser("published")
+    published.add_argument("--scenario", choices=("fulfillment", "packing", "popcorn"), required=True)
+    published.add_argument("--seed", type=int, choices=range(10), default=0)
+    published.add_argument("--graph", type=Path)
+    published.add_argument("--enable-motion", action="store_true")
+    published.add_argument("--record", action="store_true")
+    for command in (capture, run, grocery, scenario, published):
         command.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     if args.mode == "benchmark":
@@ -194,6 +212,14 @@ def main() -> None:
                               source_revision=selected["revision"], task_id=0,
                               native_file_sha256=[hashlib.sha256(path.read_bytes()).hexdigest()
                                                   for path in paths])
+            if args.published_case:
+                from gap_libero.benchmarks.vab import definition, readiness, REVISION
+
+                path, task = definition(args.published_case)
+                readiness(args.published_case)
+                result.update(native_task_files_present=True, source_revision=REVISION,
+                              published_task=task["id"],
+                              task_definition_sha256=hashlib.sha256(path.read_bytes()).hexdigest())
         except Exception as error:
             result = {"ok": False, "detail": str(error), "simulator_started": False}
     elif args.mode == "prepare-runtime":

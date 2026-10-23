@@ -37,7 +37,7 @@ def renderer_headroom():
 
 
 class LocalVLM:
-    def __init__(self, *, model=None, base_url=None, max_calls=2, timeout_s=35):
+    def __init__(self, *, model=None, base_url=None, max_calls=2, timeout_s=35, max_candidates=6):
         self.model = model or os.environ.get("GAP_VLM_MODEL", DEFAULT_MODEL)
         base = base_url or os.environ.get("GAP_VLM_BASE_URL", DEFAULT_BASE)
         self.endpoint = validated_endpoint(base)
@@ -46,6 +46,9 @@ class LocalVLM:
         if type(max_calls) is not int or not 1 <= max_calls <= 4 or not 1 <= timeout_s <= 45:
             raise ValueError("local VLM limits exceed the bounded identification budget")
         self.calls, self.max_calls, self.timeout_s = 0, max_calls, timeout_s
+        if type(max_candidates) is not int or not 1 <= max_candidates <= 10:
+            raise ValueError("candidate budget must be between one and ten")
+        self.max_candidates = max_candidates
 
     def request(self, method, url, payload=None):
         headers = {"Content-Type": "application/json"}
@@ -76,8 +79,8 @@ class LocalVLM:
     def identify(self, rgb, candidates, description, destination):
         if self.calls >= self.max_calls:
             raise ValueError("local VLM call budget exhausted no retries or fallback")
-        if not 1 <= len(candidates) <= 6:
-            raise ValueError("local identification requires one to six image candidates")
+        if not 1 <= len(candidates) <= self.max_candidates:
+            raise ValueError("local identification exceeds its image candidate budget")
         if not isinstance(description, str) or not 1 <= len(description) <= 512:
             raise ValueError("object description must be between one and 512 characters")
         image = Image.fromarray(np.asarray(rgb, dtype=np.uint8))

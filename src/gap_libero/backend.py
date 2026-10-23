@@ -78,7 +78,7 @@ class LiberoBackend:
                  max_steps: int = 400, workspace: Any = None,
                  forbidden_geom_pairs: Any = (), episode_step_limit: int = 1000,
                  object_aliases: Any = None, verify_after_goal: bool = False) -> None:
-        if episode_step_limit not in (1000, 4000):
+        if episode_step_limit not in (1000, 4000, 6000):
             raise ValueError("unsupported episode step limit")
         if type(verify_after_goal) is not bool:
             raise ValueError("post goal verification must be an explicit boolean")

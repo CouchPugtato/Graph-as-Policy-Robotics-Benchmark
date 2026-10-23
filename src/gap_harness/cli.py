@@ -42,7 +42,16 @@ def main():
     parser.add_argument("mode", choices=["check", "api-check", "generate", "evaluate", "iterate"])
     parser.add_argument(
         "--scenario",
-        choices=("grocery", "fulfillment", "packing", "popcorn", "native-object"),
+        choices=(
+            "grocery",
+            "fulfillment",
+            "packing",
+            "popcorn",
+            "native-object",
+            "published-fulfillment",
+            "published-packing",
+            "published-popcorn",
+        ),
         help="select a deployed local Qwen LIBERO task",
     )
     parser.add_argument("--session", type=Path)
@@ -76,20 +85,14 @@ def main():
         / (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid4().hex[:8])
     )
     try:
-        provider = (
-            OpenAIResponses(model, reasoning_effort=reasoning_effort)
-            if args.live
-            else None
-        )
+        provider = OpenAIResponses(model, reasoning_effort=reasoning_effort) if args.live else None
         if args.mode == "api-check":
 
             class Probe(BaseModel):
                 model_config = ConfigDict(extra="forbid", strict=True)
                 ok: bool
 
-            probe = OpenAIResponses(
-                model, max_output_tokens=512, reasoning_effort=reasoning_effort
-            )
+            probe = OpenAIResponses(model, max_output_tokens=512, reasoning_effort=reasoning_effort)
             response = probe.complete(
                 "Return only the requested JSON with ok true.",
                 {"task": "connection and structured output check"},
@@ -121,10 +124,16 @@ def main():
         max_calls = saved.get("max_calls", args.max_attempts * 10)
         selected_task = None
         if args.scenario:
-            selected_task = (
-                DEFAULT_TASK if args.scenario == "grocery"
-                else ROOT / f"harness/tasks/libero-{args.scenario}-local-qwen.json"
-            )
+            if args.scenario.startswith("published-"):
+                from gap_libero.benchmarks.vab import task_manifest
+
+                selected_task = task_manifest(args.scenario.removeprefix("published-"))
+            else:
+                selected_task = (
+                    DEFAULT_TASK
+                    if args.scenario == "grocery"
+                    else ROOT / f"harness/tasks/libero-{args.scenario}-local-qwen.json"
+                )
         task_path = selected_task or saved.get("task_manifest_path", DEFAULT_TASK)
         harness = Harness(
             task_path, session, provider, max_subgraphs=max_subgraphs, max_calls=max_calls
@@ -140,9 +149,7 @@ def main():
                 "max_calls": max_calls,
                 "seeds": harness.task.seeds,
                 "model": model,
-                "api": OpenAIResponses(
-                    model, reasoning_effort=reasoning_effort
-                ).public_settings(),
+                "api": OpenAIResponses(model, reasoning_effort=reasoning_effort).public_settings(),
                 "network_requests": 0,
                 "simulator_started": False,
                 "runner_configured": harness.task.runner is not None,
@@ -165,7 +172,9 @@ def main():
             )
             if args.mode == "iterate":
                 result = iterate(
-                    harness, rounds, args.max_attempts,
+                    harness,
+                    rounds,
+                    args.max_attempts,
                     before_generate=lambda: check_runner(harness),
                 )
             else:

@@ -323,17 +323,19 @@ def estimate_geometry(
     }
 
 
-def native_candidates(bundle):
+def native_candidates(bundle, *, floor_z=0, broad=False, split_color=False, color_threshold=.18):
     depth = bundle.to_gap_camera()["depth"]
     valid = np.isfinite(depth) & (depth >= 0.015) & (depth <= 20)
     points = np.full((*depth.shape, 3), np.nan)
     points[valid] = masked_world_points(bundle, valid)
+    brightness = (bundle.to_gap_camera()["rgb"].astype(float).mean(axis=2) / 255
+                  if split_color else None)
     # use the declared floor plane without simulator instance masks or object poses
-    foreground = valid & (points[:, :, 2] > 0.008) & (points[:, :, 2] < 0.23)
+    foreground = valid & (points[:, :, 2] > floor_z + 0.008) & (points[:, :, 2] < floor_z + 0.23)
     foreground &= (np.abs(points[:, :, 0]) < 0.7) & (np.abs(points[:, :, 1]) < 0.7)
     foreground &= points[:, :, 0] > -0.4
     size = int(foreground.sum())
-    if size > 50000:
+    if size > (80000 if broad else 50000):
         raise ValueError("native candidate foreground exceeds its pixel budget")
     indices = np.full(depth.shape, -1, dtype=int)
     indices[foreground] = np.arange(size)
@@ -341,6 +343,8 @@ def native_candidates(bundle):
     for first, second in ((np.s_[:-1, :], np.s_[1:, :]), (np.s_[:, :-1], np.s_[:, 1:])):
         joined = foreground[first] & foreground[second]
         joined &= np.linalg.norm(points[first] - points[second], axis=2) < 0.012
+        if split_color:
+            joined &= np.abs(brightness[first] - brightness[second]) < color_threshold
         edges.append((indices[first][joined], indices[second][joined]))
     rows = np.concatenate([pair[0] for pair in edges])
     columns = np.concatenate([pair[1] for pair in edges])
@@ -371,13 +375,15 @@ def native_candidates(bundle):
                and 0.045 <= spans[2] <= 0.11)
         basket = (0.1 <= min(spans[:2]) <= max(spans[:2]) <= 0.3
                   and 0.08 <= spans[2] <= 0.2)
-        if not (tin or basket):
+        general = broad and 0.015 < min(spans[:2]) < max(spans[:2]) < 0.55
+        if not (tin or basket or general):
             continue
         regions.append({"mask": mask, "pixels": len(x), "box_xyxy": [
             max(0, int(x.min()) - 3), max(0, int(y.min()) - 3),
             min(depth.shape[1], int(x.max()) + 4), min(depth.shape[0], int(y.max()) + 4)]})
     regions.sort(key=lambda item: item["pixels"], reverse=True)
-    return [{**item, "id": f"C{index + 1}"} for index, item in enumerate(regions[:6])]
+    return [{**item, "id": f"C{index + 1}"}
+            for index, item in enumerate(regions[:10 if broad else 6])]
 
 
 def native_geometry(points, object_id, camera_position=None, *, silhouette_points=None):
