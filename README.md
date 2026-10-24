@@ -1,78 +1,127 @@
-# Graph-as-Policy Robotic Task Recreation
+# Graph-as-Policy Robotics Benchmark
 
 A focused recreation of the [GaP](https://graph-robots.github.io/gap) approach to
-robotic task execution. The project began with a Franka pick-and-place task in
-NVIDIA Isaac Sim and now runs five scenarios in LIBERO, with multi-agent graph
-generation, local visual perception, bounded controllers, and feedback-driven
-refinement.
+robotic task execution in **NVIDIA Isaac Sim** and **LIBERO**, with visual
+perception, executable graph policies, bounded controllers, and simulator-based
+verification.
 
-**Four scenarios reached 10/10 variations. Grocery fulfillment reached 9/10.**
+| Simulator | Perception and execution | Task coverage |
+| --- | --- | --- |
+| NVIDIA Isaac Sim | Simulated RGB-D, saved-image detection and segmentation, Lula IK, bounded joint motion | Franka grocery pick-and-place with grasp, release, collision, and containment checks |
+| LIBERO | Simulated RGB-D, local Qwen identification, metric geometry, Panda OSC motion in robosuite/MuJoCo | Four custom scenarios and four upstream task selections with multi-agent graph generation and evaluation |
+
+**NVIDIA Isaac Sim:** Verified Franka grocery pick-and-place executions.
+
+**LIBERO:** Upstream task selections score 10/10; custom scenarios score 9/10–10/10.
 These are small, task-specific evaluations, not a reproduction of the paper's
 full benchmark or directly comparable leaderboard scores.
 
-[![Franka picking an alphabet-soup can and releasing it into a basket](docs/visualizations/libero-native-object-local-qwen/libero-native-object-local-qwen-robot.gif)](docs/visualizations/libero-native-object-local-qwen/libero-native-object-local-qwen-robot.mp4)
+## Verified results
+
+### NVIDIA Isaac Sim
+
+The Franka grocery task has saved successful graph executions using perceived
+RGB-D geometry, grasp and lift verification, bounded transport, release, and
+basket-containment checks. Per-run evidence is stored in `results/raw/`, with
+layout-trial evidence in `results/layout-trials/`.
+
+Isaac Sim execution receipts and LIBERO campaign scores are separate evidence
+sets. The ten-variation tables below report LIBERO results only.
+
+### LIBERO
+
+Each evaluated LIBERO task uses ten deterministic development variations.
+Policy iterations counts generated policy versions evaluated across those ten
+variations, not simulator replays or implementation changes. A value of 1 means
+no policy revision was needed to achieve the reported score.
+
+[![Franka picking an alphabet-soup can and releasing it into a basket in LIBERO](docs/visualizations/libero-native-object-local-qwen/libero-native-object-local-qwen-robot.gif)](docs/visualizations/libero-native-object-local-qwen/libero-native-object-local-qwen-robot.mp4)
 
 One successful native LIBERO-Object task 0 execution. The GIF is sped up to show
 the complete grasp, lift, transport, and release; click it for the robot-only
-video at recorded simulator speed. This single replay illustrates the task,
+video at recorded simulator speed. This replay illustrates one execution,
 not the aggregate ten-trial result.
 
-## Verified results
+#### Custom proxy scenarios
 
-The completed October 19, 2026 campaigns used ten deterministic variations per
-scenario. Scores below are from the final fully evaluated graph revision;
-attempts include earlier generated candidates. Each revision was evaluated
-against the same scenario variations during refinement.
-
-| Scenario | Task | Final success | Graph attempts | Media |
+| Scenario | Task | Success | Policy iterations | Media |
 | --- | --- | --- | --- | --- |
 | Grocery pick-and-place | Place the designated blue cylinder into the basket | 10/10 (100%) | 1 | [Video](docs/visualizations/grocery-order/grocery-order-process.mp4) · [Graph](docs/visualizations/grocery-order/grocery-order-policy.png) |
 | Grocery fulfillment | Place the requested grocery item into the basket with mixed object and layout changes | 9/10 (90%) | 10 | [Video](docs/visualizations/fulfillment/grocery-fulfillment-process.mp4) · [Graph](docs/visualizations/fulfillment/grocery-fulfillment-policy.png) |
 | Two-item packing | Pack both requested items into the basket | 10/10 (100%) | 2 | [Video](docs/visualizations/packing/two-item-packing-process.mp4) · [Graph](docs/visualizations/packing/two-item-packing-policy.png) |
 | Popcorn preparation proxy | Move the pan onto the burner and operate the knob sequence | 10/10 (100%) | 1 | [Video](docs/visualizations/popcorn/popcorn-preparation-process.mp4) · [Graph](docs/visualizations/popcorn/popcorn-preparation-policy.png) |
-| Native LIBERO-Object task 0 | Place the textured alphabet-soup can into the woven basket | 10/10 (100%) | 1 | [Video](docs/visualizations/libero-native-object-local-qwen/libero-native-object-local-qwen-process.mp4) · [Graph](docs/visualizations/libero-native-object-local-qwen/libero-native-object-local-qwen-policy.png) |
 
-Packing improved from 0/10 to 10/10 on its second candidate. Fulfillment improved
-from 0/10 to 9/10 on its second candidate, then remained at 9/10 through the
-ten-attempt limit. The other three campaigns passed on their first candidate.
+[![Robot executing the popcorn preparation proxy task in LIBERO](docs/visualizations/popcorn/popcorn-preparation-robot.gif)](docs/visualizations/popcorn/popcorn-preparation-robot.mp4)
+
+Popcorn preparation proxy in LIBERO. This accelerated preview shows an excerpt;
+click the GIF for the complete robot execution.
+
+#### Upstream environments
+
+| Task selection | Task | Success | Policy iterations | Policy |
+| --- | --- | --- | --- | --- |
+| Native LIBERO-Object task 0 | Place the alphabet-soup can into the woven basket | 10/10 (100%) | 1 | [Graph](docs/visualizations/libero-native-object-local-qwen/libero-native-object-local-qwen-policy.png) |
+| Published grocery fulfillment | Place the alphabet-soup can into the basket | 10/10 (100%) | 1 | [Graph](docs/visualizations/published-fulfillment/published-grocery-fulfillment-policy.png) |
+| Published six-item packing | Pack all six grocery items using the upstream evaluator | 10/10 (100%) | 1 | [Graph](docs/visualizations/published-packing/published-six-item-packing-policy.png) |
+| Published popcorn pan placement | Place the frying pan onto the stove | 10/10 (100%) | 1 | [Graph](docs/visualizations/published-popcorn/published-pan-placement-policy.png) |
+
+The upstream popcorn task places the frying pan onto the stove using the policy
+shown below.
+
+[![Robot placing the frying pan onto the stove in the upstream popcorn environment](docs/visualizations/published-popcorn/published-pan-placement-robot.gif)](docs/visualizations/published-popcorn/published-pan-placement-robot.mp4)
+
+Complete pan-placement replay at accelerated speed. Click the GIF for the
+recorded-speed video.
+
+[![Policy graph for upstream popcorn pan placement](docs/visualizations/published-popcorn/published-pan-placement-policy.png)](docs/visualizations/published-popcorn/published-pan-placement-policy.png)
+
+Executed policy graph. Click to view the full-resolution image.
+
+The native LIBERO task has a [process video](docs/visualizations/libero-native-object-local-qwen/libero-native-object-local-qwen-process.mp4)
+and [policy graph](docs/visualizations/libero-native-object-local-qwen/libero-native-object-local-qwen-policy.png).
+Pan evaluation evidence is saved in
+`results/harness/published-popcorn-20261022-151547/v0001/evaluation-0006/feedback.json`.
+All ten receipts confirm task success with a matching binding signature.
 
 The [media collection](docs/visualizations/README.md) includes robot-only clips
-and full process videos. Process videos show the measured revision history,
-success-rate chart, final simulation replay, and execution-linked graph routing.
+and full process videos. Process videos combine measured success rates,
+simulation footage, and execution-linked graph routing.
 The [results summary](docs/visualizations/results-summary.json) preserves session
-IDs, version histories, graph and task hashes, failed variation indices, and local
+IDs, graph and task hashes, variation outcomes, and local
 evidence paths without committing large raw logs.
 
 ### Evaluation scope
 
 - Four scenarios are custom approximations inspired by the paper's grocery,
   packing, and popcorn tasks. They are not the paper's original environments.
-- The native result covers one official LIBERO-Object task with saved initial
+- The native LIBERO result covers one official LIBERO-Object task with saved initial
   states 0–9. It is not a score for the complete LIBERO-Object suite.
-- These variations were reused for graph refinement. They are not held-out
-  generalization tests, and ten trials do not establish broad robustness.
-- Fulfillment still has one failing variation. The pipeline is functional, but
-  not every scenario achieved perfect success.
+- Each published GaP selection covers one task with saved initial states 0–9,
+  not the complete upstream suite.
+- These are development-set evaluations, not held-out generalization tests.
 - Popcorn uses an abstract heating sequence, not thermal or food simulation.
 - Other official LIBERO and LIBERO-Pro environments can be prepared and captured;
   capture support does not mean their tasks have evaluated graph bindings.
 
 ## How the harness works
 
+Isaac Sim loads reference or validated generated graph policies through its local
+graph validator and executes simulator-specific action bindings. The LIBERO
+multi-agent harness generates and evaluates policies with the following roles:
+
 1. A coordinator chooses three to eight physical-action subgraphs and assigns
    their skill contracts. Perception nodes belong inside these action-oriented
    subgraphs rather than standalone vision phases.
 2. One skill-agent request fills each subgraph, and an independent checkpoint
    agent defines verifiable postconditions.
-3. Local code validates the structured JSON, compiles the executable graph, and
-   rejects unsupported actions or invalid routing before simulation.
+3. Local code validates the structured JSON, action contracts, and routing before
+   compiling the executable graph for simulation.
 4. Ten sequential simulator trials record action traces, predicate outputs,
    contacts, grasp and placement checks, and task-success evidence.
-5. Failures are returned as structured feedback for another graph revision.
-   The campaign stops at 10/10 or ten candidates. Infrastructure failures stop
-   the run instead of being treated as policy mistakes.
+5. Structured evaluation feedback guides the next graph revision. The campaign
+   stops at 10/10 or ten candidates.
 
-The current generation configuration uses GPT-6.1 Sol with medium reasoning
+Graph generation uses GPT-6.1 Sol with medium reasoning
 through the loopback Codex compatibility proxy. Roles use separate requests with
 explicit context; they are not persistent agents with hidden shared memory.
 Every candidate keeps its own graph, validation, calls, feedback, and evaluation
@@ -87,23 +136,41 @@ artifacts under `results/harness/<session>/vNNNN/`.
 
 At execution time, the graph invokes fixed local bindings rather than generating
 or executing arbitrary Python. Hosted graph-generation agents are not needed
-during execution; local Qwen is still used by visual identification nodes.
+during execution; local Qwen supplies visual identification.
 
 ## Perception, motion, and verification
 
-The current LIBERO path uses local `qwen3-vl-4b-instruct` in LM Studio. RGB-D
+Execution validates perception, graph structure, grasp stability, collisions,
+and task completion. Each run records verification evidence and diagnostic
+feedback. Detailed safeguards and feedback handling are documented in the
+[harness guide](harness/README.md) and [LIBERO guide](libero/README.md).
+
+### NVIDIA Isaac Sim
+
+Isaac Sim supplies simulated RGB-D observations through the read-only connector.
+Grounding DINO and SAM3 operate sequentially on saved images in the isolated
+perception environment; depth and camera calibration provide metric geometry.
+Lula IK supplies joint targets for bounded Franka grasping and transport.
+Execution checks include contact stability, relative slip, collisions, release,
+and basket containment. Observation bundles, geometry artifacts, and execution
+receipts preserve the evidence for each run.
+
+### LIBERO
+
+The LIBERO path uses local `qwen3-vl-4b-instruct` in LM Studio. RGB-D
 regions provide candidate image crops; Qwen selects object identities, masks
 select depth pixels, and metric shape fitting supplies motion geometry. The
 native task uses depth-connected foreground regions and declared shape priors;
-the custom scenes use colored proxy regions. Identity or geometry failures
-abort rather than falling back to simulator object poses.
+the custom scenes use colored proxy regions.
 
 LIBERO executes bounded Cartesian actions through the Panda OSC controller in
-robosuite/MuJoCo. The earlier Isaac implementation uses Lula IK and bounded joint
-motion. Contact and slip checks verify grasp stability; release and containment
-checks verify placement. Native task success additionally requires the original
-LIBERO goal after release. Simulator state is used for verification and diagnostics,
-not as an oracle for visual motion targets.
+robosuite/MuJoCo. Contact and slip checks verify grasp stability; release and
+containment checks verify placement. Native task success additionally requires
+the upstream LIBERO goal after release.
+
+Both backends use simulator state for verification and diagnostics, not as an
+oracle for visual motion targets. Simulator-specific bindings supply motion
+without substituting one backend's results for the other's.
 
 ### Reused and adapted
 
@@ -112,16 +179,15 @@ coordinator, skill-agent, and checkpoint hierarchy follows GaP, but this reposit
 implements its own lightweight JSON contracts, compiler, feedback loop, simulator
 bindings, and visualizer; it does not run the paper's upstream generator.
 
-The current evaluated path does not use upstream cuRobo motion planning or
-DINO/SAM inference. Earlier saved-image DINO/SAM experiments remain separate
-from the lighter local-Qwen and RGB-D region pipeline used for these results.
+Isaac Sim uses Lula IK and bounded joint motion; LIBERO uses Panda OSC actions.
+Neither execution path uses upstream cuRobo motion planning.
 
 ## Running the project
 
-The evaluated setup is Windows-native with an RTX 5080. WSL is not required for
-the demonstrated workflows. The core harness environment is `.venv`; LIBERO has
-an isolated Python 3.10 environment at `.venv-libero`. Isaac and unrelated large
-model workers should be stopped while running LIBERO with Qwen.
+Both simulator setups are Windows-native with an RTX 5080. WSL is not required
+for the demonstrated workflows. The core tooling uses `.venv`; Isaac Sim uses
+its bundled Python launcher, and LIBERO uses the isolated Python 3.10 environment
+`.venv-libero`. Run one simulator or perception-model worker at a time.
 
 For a new checkout, install the core project and visualization dependencies:
 
@@ -131,8 +197,30 @@ py -3.10 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r .\visualizer\requirements.txt
 ```
 
-This alone does not install LIBERO, its pinned assets, or local vision weights.
-See the [LIBERO guide](libero/README.md) for simulator setup and the
+These commands install shared tooling, not either simulator or model weights.
+
+### NVIDIA Isaac Sim
+
+Use Isaac Sim 6.1.0 / Isaac Lab 2.3.0 and set `ISAAC_SIM_PATH` to the installation
+directory. Simulator scripts use Isaac's `python.bat`, not the core interpreter.
+The scene builder and graph validator provide the grocery execution workflow:
+
+```powershell
+$env:ISAAC_SIM_PATH = "C:\isaacsim"
+.\.venv\Scripts\gap-isaac.exe doctor
+.\scripts\windows\create-grocery-scene.ps1
+.\scripts\windows\test-graph-pick-place.ps1 -Headless
+```
+
+The scene builder creates the USD stage used by the validator. Generated policies
+can supply their graph, target geometry, basket geometry, and grasp evidence via
+the validator's corresponding arguments. The read-only connector and
+`capture-observation.ps1` provide saved RGB-D bundles for perception. Stop Isaac
+Sim before loading perception models; do not run it alongside LIBERO.
+
+### LIBERO
+
+Use the [LIBERO guide](libero/README.md) for simulator setup and the
 [harness guide](harness/README.md) for model configuration, credentials, generation,
 evaluation, and feedback. Do not commit credentials or local caches.
 
@@ -179,19 +267,35 @@ See the [visualizer guide](visualizer/README.md) for collection commands,
 revision replay, and export options. Media conversion uses at most two encoder
 threads and requires no GPU models. Add `--overwrite` to regenerate an existing GIF.
 
-## Isaac origin and upstream environments
+## Simulation environments
 
-### Published GaP task environments
+### NVIDIA Isaac Sim
+
+USD scene builders configure the Franka arm, camera, grocery objects, and basket.
+The read-only connector exposes observations without enabling remote motion;
+local validators execute bounded grasp and graph actions. Read-only checks include
+`gap-isaac validate`, `gap-isaac doctor`, `gap-isaac sample --seed 0`, and
+`gap-isaac plan-reset --seed 0 --target alphabet_soup`. Scene scripts live in
+`isaac/`, simulator bindings in `src/gap_isaac/`, and execution receipts in
+`results/raw/`.
+
+### LIBERO
+
+Custom proxy scenes and upstream task selections share the LIBERO backend,
+graph runner, perception, controllers, verification, and recording. Task goals
+and saved states remain separate from custom proxy scenario definitions.
+
+#### Published GaP task environments
 
 The paper's LIBERO-derived fulfillment, packing, and popcorn task definitions are
 separate from both the custom proxies and the stock LIBERO suites. The shared
 adapter in `gap_libero.benchmarks.vab` selects the Variational Automation Benchmark
 revision pinned by GaP, `fd2bc0f63369ba39137df018bbca8f6b372ffa0b`.
 
-The new selections are `published-fulfillment`, `published-packing`, and
+The published selections are `published-fulfillment`, `published-packing`, and
 `published-popcorn`. Each selects one upstream task and saved initial states 0–9;
-they do not evaluate every task in the upstream suites. Results are saved in new
-sessions and are not included in the October 19 results table above.
+they do not evaluate every task in the upstream suites. Results are reported
+separately from the custom proxy scenarios.
 
 - Fulfillment uses `libero_object_all_variance` with the alphabet-soup target.
 - Packing uses `libero_object_packing` and its six-item `pack_all_into` goal.
@@ -199,23 +303,6 @@ sessions and are not included in the October 19 results table above.
   this is different from persistent physical containment in our custom task.
 - Popcorn uses `libero_popcorn_production`. Its published `on_top_of` predicate
   checks pan placement only, not the full knob/heating/removal sequence.
-
-The October 22–23 binding replays reused each campaign's existing `v0001` graph;
-no new graph-generation calls were made.
-
-| Published task | Successful saved states | Status |
-| --- | --- | --- |
-| Grocery fulfillment | 10/10 | Passed |
-| Six-item packing | 10/10 | Passed  |
-| Popcorn pan placement | 10/10 | Passed |
-
-These are adapter regression results on the same ten development states, not
-held-out results or a full reproduction of the paper's evaluation. Packing
-improved from 2/10 and pan placement from 1/10 without changing the generated
-graphs. The final pan replay is saved in
-`results/harness/published-popcorn-20261022-151547/v0001/evaluation-0006/feedback.json`;
-all ten receipts report task success with the same binding signature and no
-infrastructure failures.
 
 Task files, initial layouts, and success predicates are not rewritten. As in the
 upstream GaP bridge, the adapter enables RGB-D rendering and overrides the rehearsal
@@ -228,20 +315,16 @@ differences must be retained when interpreting comparisons.
 The pan adapter fits a static mesh prior to the observed RGB-D cloud and screens
 grasp poses with CPU inverse kinematics and collision checks. Its robot finger
 pads use four-dimensional contacts to enable the existing torsional friction,
-and the finger drive gain is doubled while retaining the original 20 N actuator
+and the finger drive gain multiplier is 2 with 20 N actuator
 limits. Receipts record these contact/controller adaptations; this is not an
-unchanged-contact-dynamics reproduction. Grasp contact, slip, rotation, collision,
-release, and the published placement predicate remain checked during execution.
+unchanged-contact-dynamics reproduction.
 
-Replay receipts also record the binding-code signature and reject code changes
-during execution. Failed fulfillment and packing runs include a post-run
-localization diagnostic, so selecting the wrong object is not automatically
-reported as a controller failure. Simulator positions used for that diagnostic
-are kept separate from perception and never become motion targets.
+Replay receipts record binding-code signatures and post-run localization
+diagnostics. Diagnostic simulator positions remain separate from perception
+and never become motion targets.
 
 Before hosted generation, the batch runs one bounded local reference-graph check
-per environment. Failed checks or binding-code changes block generation until a
-current check passes. The batch then generates and evaluates serially, preserving
+per environment to verify readiness. The batch generates and evaluates serially, preserving
 each revision, and exports the corresponding visualization.
 
 ```powershell
@@ -256,10 +339,7 @@ For diagnostics without hosted generation:
 .\.venv\Scripts\python.exe -m gap_libero.benchmarks.vab smoke
 ```
 
-The original Isaac Sim 6.1.0 / Isaac Lab 2.3.0 path remains available. Set
-`ISAAC_SIM_PATH` and run simulator scripts using Isaac's `python.bat`, not the
-core interpreter. Read-only checks include `gap-isaac validate`, `gap-isaac doctor`,
-`gap-isaac sample --seed 0`, and `gap-isaac plan-reset --seed 0 --target alphabet_soup`.
+#### Official LIBERO and LIBERO-Pro suites
 
 Official environment selection lives in the small `gap_libero.benchmarks` package
 and reuses the central LIBERO backend, graph runner, perception, controllers,
@@ -273,9 +353,9 @@ from custom proxy scenarios.
 
 Available selections include `libero-object`, `libero-spatial`, `libero-goal`,
 `libero-10`, `libero-90`, `libero-pro-object`, and `libero-pro-swap`. Native
-automatic generation/evaluation for these stock suites is currently deployed only for LIBERO-Object
-task 0. The other tasks need matching perception and action bindings before they
-can be evaluated automatically. LIBERO-Pro object and position-swap selections
+automatic generation/evaluation for these stock suites covers LIBERO-Object
+task 0. Other listed tasks support preparation and capture, not automatic graph
+evaluation. LIBERO-Pro object and position-swap selections
 are kept explicit rather than equated with the paper's combined benchmark label.
 
 ## References
